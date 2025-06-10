@@ -5,11 +5,11 @@ import json
 import openai
 from dotenv import load_dotenv
 
-# Load .env so OPENAI_API_KEY is available
+# LoadOpenAI key
 load_dotenv()
-
-# Configure OpenAI
 openai.api_key = os.getenv("OPENAI_API_KEY")
+if not openai.api_key:
+    raise ValueError("OPENAI_API_KEY not set in .env")
 
 # Prompt template
 STARTER_PROMPT = """
@@ -23,29 +23,17 @@ Respond only in JSON array format, no extra explanation.
 """
 
 async def generate_quiz_with_gpt(topic: str):
-    """
-    Calls OpenAI’s ChatCompletion to generate a quiz.
-    Returns a list of dicts like:
-    [
-      {
-        "question": "...",
-        "correctAnswer": "...",
-        "wrongAnswers": ["...", "...", "..."]
-      },
-      ...
-    ]
-    """
     prompt = STARTER_PROMPT.format(topic=topic)
-    response = await openai.ChatCompletion.acreate(
+    # NEW: use the v1 chat API
+    resp = await openai.chat.completions.acreate(
         model="gpt-4-0613",
         messages=[{"role": "user", "content": prompt}],
         temperature=0.7,
         max_tokens=800,
     )
-    content = response.choices[0].message.content.strip()
+    content = resp.choices[0].message.content.strip()
     try:
-        quiz = json.loads(content)
+        return json.loads(content)
     except json.JSONDecodeError as e:
-        raise ValueError(f"GPT returned invalid JSON: {e}\nContent was:\n{content}")
-    return quiz
+        raise ValueError(f"Invalid JSON from GPT: {e}\n{content}")
 
