@@ -5,4 +5,5 @@ asyncpg
 pydantic
 python-dotenv
 openai
+aiosqlite
 
