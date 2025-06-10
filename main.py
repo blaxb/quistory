@@ -1,5 +1,4 @@
-# main.py
-
+import os
 import uvicorn
 from fastapi import FastAPI, HTTPException, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,7 +11,9 @@ from models import QuizTopic
 from quiz_logic import build_quiz_from_facts
 from fallback_gpt import generate_quiz_with_gpt
 
-# Pydantic schemas
+# -----------------------
+# Pydantic request/response schemas
+# -----------------------
 class QuizQuestion(BaseModel):
     question: str
     correctAnswer: str
@@ -24,11 +25,14 @@ class QuizRequest(BaseModel):
 class QuizResponse(BaseModel):
     quiz: List[QuizQuestion]
 
+# -----------------------
+# FastAPI app
+# -----------------------
 app = FastAPI(title="Guess.ai Quiz API")
 
 @app.on_event("startup")
 async def on_startup():
-    # Create tables if they don't exist
+    # Ensure all tables exist
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
@@ -39,26 +43,31 @@ async def generate_quiz(
 ):
     topic = payload.topic.strip().lower()
 
-    # Check for existing topic in DB
+    # 1. Try to fetch from the database
     stmt = select(QuizTopic).where(QuizTopic.topic_name == topic)
     result = await db.execute(stmt)
     topic_obj = result.scalars().first()
 
     if topic_obj:
-        # Build from verified data
+        # Use your verified facts
         quiz_models = build_quiz_from_facts(topic_obj.facts)
     else:
-        # Fallback to GPT
+        # Fallback to GPT, but catch any errors and return a safe message
         try:
             raw_quiz = await generate_quiz_with_gpt(topic)
             quiz_models = build_quiz_from_facts(raw_quiz)
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"GPT fallback error: {e}")
+        except Exception:
+            # Return a simple ASCII-safe error
+            raise HTTPException(status_code=500, detail="GPT fallback error")
 
-    # Convert Pydantic models to plain dicts for response validation
+    # Convert Pydantic model instances to plain dicts
     quiz_dicts = [q.model_dump() for q in quiz_models]
     return QuizResponse(quiz=quiz_dicts)
 
+# -----------------------
+# Run the app
+# -----------------------
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
+    port = int(os.getenv("PORT", 8000))
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)
 
