@@ -3,9 +3,10 @@
 import os
 import json
 import openai
+import asyncio
 from dotenv import load_dotenv
 
-# LoadOpenAI key
+# Load your OpenAI key
 load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
 if not openai.api_key:
@@ -24,14 +25,17 @@ Respond only in JSON array format, no extra explanation.
 
 async def generate_quiz_with_gpt(topic: str):
     prompt = STARTER_PROMPT.format(topic=topic)
-    # NEW: use the v1 chat API
-    resp = await openai.chat.completions.acreate(
+
+    # Run the sync .create call in a thread to avoid blocking
+    response = await asyncio.to_thread(
+        openai.chat.completions.create,
         model="gpt-4-0613",
         messages=[{"role": "user", "content": prompt}],
         temperature=0.7,
         max_tokens=800,
     )
-    content = resp.choices[0].message.content.strip()
+
+    content = response.choices[0].message.content.strip()
     try:
         return json.loads(content)
     except json.JSONDecodeError as e:
