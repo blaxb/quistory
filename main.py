@@ -4,7 +4,7 @@ from fastapi import FastAPI, HTTPException, Depends, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from pydantic import BaseModel
-from typing import List, Literal, Union
+from typing import List, Literal, Union, Any
 
 from database import get_db, engine, Base, SessionLocal
 from models import QuizTopic
@@ -12,7 +12,7 @@ from quiz_logic import build_quiz_from_facts
 from fallback_gpt import generate_quiz_with_gpt
 
 # -----------------------
-# Pydantic Schemas
+# Schemas for response
 # -----------------------
 class MCQQuestion(BaseModel):
     question: str
@@ -32,13 +32,15 @@ QuizResponse = Union[ListQuiz, MCQQuiz]
 class QuizRequest(BaseModel):
     topic: str
 
+# -----------------------
+# Admin schema: facts can be anything
+# -----------------------
 class AdminTopic(BaseModel):
     topic_name: str
-    # Accept either a list of strings or a list of MCQ items
-    facts: Union[List[str], List[MCQQuestion]]
+    facts: List[Any]    # accept list of strings or dicts
 
 # -----------------------
-# App & Config
+# App init
 # -----------------------
 app = FastAPI(title="Guess.ai Quiz API")
 
@@ -54,7 +56,7 @@ async def on_startup():
         await conn.run_sync(Base.metadata.create_all)
 
 # -----------------------
-# Public quiz endpoint
+# Public endpoint
 # -----------------------
 @app.post("/generate-quiz", response_model=QuizResponse)
 async def generate_quiz(
@@ -67,20 +69,19 @@ async def generate_quiz(
     topic_obj = result.scalars().first()
 
     if topic_obj:
-        # List‐type if facts are strings
-        if isinstance(topic_obj.facts, list) and all(isinstance(i, str) for i in topic_obj.facts):
+        # list‐type if all facts are strings
+        if all(isinstance(i, str) for i in topic_obj.facts):
             return ListQuiz(quiz_type="list", items=topic_obj.facts)
-        # Otherwise MCQ
-        quiz_models = build_quiz_from_facts(topic_obj.facts)
-        return MCQQuiz(quiz_type="mcq", quiz=[q.model_dump() for q in quiz_models])
+        mcq = build_quiz_from_facts(topic_obj.facts)
+        return MCQQuiz(quiz_type="mcq", quiz=[q.model_dump() for q in mcq])
 
     # GPT fallback
     try:
         raw = await generate_quiz_with_gpt(topic)
-        if isinstance(raw, list) and all(isinstance(i, str) for i in raw):
+        if all(isinstance(i, str) for i in raw):
             return ListQuiz(quiz_type="list", items=raw)
-        quiz_models = build_quiz_from_facts(raw)
-        return MCQQuiz(quiz_type="mcq", quiz=[q.model_dump() for q in quiz_models])
+        mcq = build_quiz_from_facts(raw)
+        return MCQQuiz(quiz_type="mcq", quiz=[q.model_dump() for q in mcq])
     except Exception:
         raise HTTPException(status_code=500, detail="GPT fallback error")
 
@@ -93,7 +94,7 @@ async def create_topic(payload: AdminTopic):
         res = await db.execute(select(QuizTopic).where(QuizTopic.topic_name == payload.topic_name))
         if res.scalars().first():
             raise HTTPException(status_code=400, detail="Topic already exists")
-        # Store facts directly (strings or dicts)
+        # Store whatever facts were sent
         new = QuizTopic(topic_name=payload.topic_name, facts=payload.facts)
         db.add(new)
         await db.commit()
