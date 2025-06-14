@@ -10,15 +10,14 @@ from openai._base_client import BaseClient
 from fallback_gpt import generate_quiz_with_gpt
 
 # -----------------------
-# Strip non-ASCII out of any header value
+# Monkey-patch header builder to strip non-ASCII, with *args/**kwargs
 # -----------------------
 _orig_build_headers = BaseClient._build_headers
-def _patched_build_headers(self, options, retries_taken):
-    headers = _orig_build_headers(self, options, retries_taken)
+def _patched_build_headers(self, *args, **kwargs):
+    headers = _orig_build_headers(self, *args, **kwargs)
     clean = {}
     for k, v in headers.items():
         if isinstance(v, str):
-            # drop any non-ASCII characters
             clean[k] = v.encode("ascii", errors="ignore").decode("ascii")
         else:
             clean[k] = v
@@ -62,25 +61,22 @@ def require_admin(x_api_key: str = Header(..., alias="X-API-KEY")):
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 # -----------------------
-# Public endpoint — GPT first!
+# Public endpoint — GPT first
 # -----------------------
 @app.post("/generate-quiz", response_model=QuizResponse)
 async def generate_quiz(payload: QuizRequest):
     topic = payload.topic.strip()
     try:
         raw = await generate_quiz_with_gpt(topic)
-        # simple list
         if all(isinstance(i, str) for i in raw):
             return ListQuiz(quiz_type="list", items=raw)
-        # otherwise MCQ objects
-        mcq_items = [q.model_dump() for q in raw]
-        return MCQQuiz(quiz_type="mcq", quiz=mcq_items)
+        return MCQQuiz(quiz_type="mcq", quiz=[q.model_dump() for q in raw])
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"GPT error: {e}")
 
 # -----------------------
-# Admin stubs (no DB)
+# Admin stubs
 # -----------------------
 @app.post("/admin/topics", dependencies=[Depends(require_admin)])
 async def create_topic(payload: AdminTopic):
