@@ -1,21 +1,23 @@
-import os
-import asyncio
-import httpx
+kkk# fallback_gpt.py
 
-# ────────────── Remove top‐level key‐check ──────────────
-# We'll check for the key inside the function so imports never fail.
+from dotenv import load_dotenv
+load_dotenv()    # ← load OPENAI_API_KEY from your .env locally
+
+import os
+import httpx
+import json
+from typing import List
 
 SYSTEM_PROMPT = (
     "You are a helpful assistant that generates a quiz. "
-    "When given a topic, respond with a JSON array of strings "
-    "– each one a quiz item for that topic."
+    "When given a topic, respond with a JSON array of strings – "
+    "each one a quiz item for that topic."
 )
 
-async def generate_quiz_with_gpt(topic: str) -> list[str]:
+async def generate_quiz_with_gpt(topic: str) -> List[str]:
     """Call OpenAI via HTTPX and return a simple list of quiz items."""
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
-        # Now the error happens here, not at import time
         raise RuntimeError("Missing OPENAI_API_KEY")
 
     url = "https://api.openai.com/v1/chat/completions"
@@ -27,7 +29,7 @@ async def generate_quiz_with_gpt(topic: str) -> list[str]:
         "model": "gpt-3.5-turbo",
         "messages": [
             {"role": "system",  "content": SYSTEM_PROMPT},
-            {"role": "user",    "content": f"Generate a quiz list on “{topic}”."}
+            {"role": "user",    "content": f"Generate a quiz list on \"{topic}\"."}
         ],
         "max_tokens": 500,
         "n": 1,
@@ -41,15 +43,15 @@ async def generate_quiz_with_gpt(topic: str) -> list[str]:
 
     content = data["choices"][0]["message"]["content"]
 
-    # Try JSON‐list first
+    # 1) Try JSON-parsed list
     try:
-        items = httpx.decouple.json.loads(content)
+        items = json.loads(content)
         if isinstance(items, list) and all(isinstance(i, str) for i in items):
             return items
-    except Exception:
+    except json.JSONDecodeError:
         pass
 
-    # Fallback: split lines
+    # 2) Fallback: split lines, strip bullets or numbering
     lines = [line.strip() for line in content.splitlines() if line.strip()]
     cleaned = [line.lstrip("-0123456789. ").strip() for line in lines]
     return cleaned
