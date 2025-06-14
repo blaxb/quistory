@@ -1,4 +1,4 @@
-kkk# fallback_gpt.py
+# fallback_gpt.py
 
 from dotenv import load_dotenv
 load_dotenv()    # ← load OPENAI_API_KEY from your .env locally
