@@ -2,9 +2,8 @@ import os
 import asyncio
 import httpx
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-if not OPENAI_API_KEY:
-    raise RuntimeError("Missing OPENAI_API_KEY")
+# ────────────── Remove top‐level key‐check ──────────────
+# We'll check for the key inside the function so imports never fail.
 
 SYSTEM_PROMPT = (
     "You are a helpful assistant that generates a quiz. "
@@ -14,11 +13,15 @@ SYSTEM_PROMPT = (
 
 async def generate_quiz_with_gpt(topic: str) -> list[str]:
     """Call OpenAI via HTTPX and return a simple list of quiz items."""
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        # Now the error happens here, not at import time
+        raise RuntimeError("Missing OPENAI_API_KEY")
+
     url = "https://api.openai.com/v1/chat/completions"
     headers = {
-        "Authorization": f"Bearer {OPENAI_API_KEY}",
+        "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
-        # No other headers, so nothing non-ASCII slips through
     }
     payload = {
         "model": "gpt-3.5-turbo",
@@ -36,10 +39,9 @@ async def generate_quiz_with_gpt(topic: str) -> list[str]:
         resp.raise_for_status()
         data = resp.json()
 
-    # Extract the assistant’s content
     content = data["choices"][0]["message"]["content"]
 
-    # Expect either a JSON list or a plain newline list. Try JSON first:
+    # Try JSON‐list first
     try:
         items = httpx.decouple.json.loads(content)
         if isinstance(items, list) and all(isinstance(i, str) for i in items):
@@ -47,8 +49,8 @@ async def generate_quiz_with_gpt(topic: str) -> list[str]:
     except Exception:
         pass
 
-    # Fallback: split by lines and strip bullets/numbers
+    # Fallback: split lines
     lines = [line.strip() for line in content.splitlines() if line.strip()]
-    cleaned = [line.lstrip("-0123456789. ") for line in lines]
+    cleaned = [line.lstrip("-0123456789. ").strip() for line in lines]
     return cleaned
 
