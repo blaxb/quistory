@@ -1,6 +1,7 @@
 import os
 import uvicorn
 import traceback
+import os; print("OPENAI_API_KEY =", os.getenv("OPENAI_API_KEY"))
 
 # ────────────────────────────────────────────────────────────────────────────
 # Patch HTTPX so its header encoder will drop non-ASCII rather than error
