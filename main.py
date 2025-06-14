@@ -64,6 +64,13 @@ def require_admin(x_api_key: str = Header(..., alias="X-API-KEY")):
     if x_api_key != ADMIN_KEY:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
+@app.get("/")
+async def root():
+    return {
+        "status": "ok",
+        "message": "Guess.ai Quiz API is running. POST your JSON to /generate-quiz"
+    }
+
 # ────────────────────────────────────────────────────────────────────────────
 # Public endpoint — GPT First
 # ────────────────────────────────────────────────────────────────────────────
