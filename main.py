@@ -1,15 +1,33 @@
 import os
 import uvicorn
 import traceback
-import httpx
-from fastapi import FastAPI, HTTPException, Depends, Header
+from fastapi import FastAPI, HTTPException, Header, Depends
 from pydantic import BaseModel
 from typing import List, Literal, Union, Any
+import openai
+from openai._base_client import BaseClient
 
 from fallback_gpt import generate_quiz_with_gpt
 
 # -----------------------
-# Schemas for response
+# Strip non-ASCII out of any header value
+# -----------------------
+_orig_build_headers = BaseClient._build_headers
+def _patched_build_headers(self, options, retries_taken):
+    headers = _orig_build_headers(self, options, retries_taken)
+    clean = {}
+    for k, v in headers.items():
+        if isinstance(v, str):
+            # drop any non-ASCII characters
+            clean[k] = v.encode("ascii", errors="ignore").decode("ascii")
+        else:
+            clean[k] = v
+    return clean
+
+BaseClient._build_headers = _patched_build_headers
+
+# -----------------------
+# Schemas
 # -----------------------
 class MCQQuestion(BaseModel):
     question: str
@@ -29,9 +47,6 @@ QuizResponse = Union[ListQuiz, MCQQuiz]
 class QuizRequest(BaseModel):
     topic: str
 
-# -----------------------
-# Admin schema
-# -----------------------
 class AdminTopic(BaseModel):
     topic_name: str
     facts: List[Any]
@@ -42,44 +57,37 @@ class AdminTopic(BaseModel):
 app = FastAPI(title="Guess.ai Quiz API", debug=True)
 
 ADMIN_KEY = os.getenv("ADMIN_API_KEY")
-
 def require_admin(x_api_key: str = Header(..., alias="X-API-KEY")):
     if x_api_key != ADMIN_KEY:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
-# Force httpx/OpenAI to use ASCII-only headers
-httpx._models.DEFAULT_HEADERS["user-agent"] = "openai-python/1.0"
-
 # -----------------------
-# Public endpoint
+# Public endpoint — GPT first!
 # -----------------------
 @app.post("/generate-quiz", response_model=QuizResponse)
 async def generate_quiz(payload: QuizRequest):
     topic = payload.topic.strip()
     try:
         raw = await generate_quiz_with_gpt(topic)
-        # simple list of strings?
+        # simple list
         if all(isinstance(i, str) for i in raw):
             return ListQuiz(quiz_type="list", items=raw)
         # otherwise MCQ objects
-        mcq_items = [q.model_dump() for q in raw]  # assume fallback returns dicts compatible
+        mcq_items = [q.model_dump() for q in raw]
         return MCQQuiz(quiz_type="mcq", quiz=mcq_items)
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"GPT error: {e}")
 
 # -----------------------
-# Admin endpoints
+# Admin stubs (no DB)
 # -----------------------
 @app.post("/admin/topics", dependencies=[Depends(require_admin)])
 async def create_topic(payload: AdminTopic):
-    # Here you could still store admin topics in your DB if desired
-    # For now we'll just pretend it's a no-op
     return {"status": "created", "topic": payload.topic_name}
 
 @app.get("/admin/topics", dependencies=[Depends(require_admin)])
 async def list_topics():
-    # No real storage in this version
     return []
 
 # -----------------------
