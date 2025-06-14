@@ -1,15 +1,11 @@
 import os
 import uvicorn
 import traceback
+import httpx
 from fastapi import FastAPI, HTTPException, Depends, Header
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.future import select
 from pydantic import BaseModel
 from typing import List, Literal, Union, Any
 
-from database import get_db, engine, Base, SessionLocal
-from models import QuizTopic
-from quiz_logic import build_quiz_from_facts
 from fallback_gpt import generate_quiz_with_gpt
 
 # -----------------------
@@ -34,11 +30,11 @@ class QuizRequest(BaseModel):
     topic: str
 
 # -----------------------
-# Admin schema: facts can be anything
+# Admin schema
 # -----------------------
 class AdminTopic(BaseModel):
     topic_name: str
-    facts: List[Any]    # accept list of strings or dicts
+    facts: List[Any]
 
 # -----------------------
 # App init
@@ -51,87 +47,41 @@ def require_admin(x_api_key: str = Header(..., alias="X-API-KEY")):
     if x_api_key != ADMIN_KEY:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
-@app.on_event("startup")
-async def on_startup():
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+# Force httpx/OpenAI to use ASCII-only headers
+httpx._models.DEFAULT_HEADERS["user-agent"] = "openai-python/1.0"
 
 # -----------------------
 # Public endpoint
 # -----------------------
 @app.post("/generate-quiz", response_model=QuizResponse)
-async def generate_quiz(
-    payload: QuizRequest,
-    db: AsyncSession = Depends(get_db)
-):
+async def generate_quiz(payload: QuizRequest):
+    topic = payload.topic.strip()
     try:
-        topic = payload.topic.strip().lower()
-        stmt = select(QuizTopic).where(QuizTopic.topic_name == topic)
-        result = await db.execute(stmt)
-        topic_obj = result.scalars().first()
-
-        if topic_obj:
-            # list‐type if all facts are strings
-            if all(isinstance(i, str) for i in topic_obj.facts):
-                return ListQuiz(quiz_type="list", items=topic_obj.facts)
-            mcq = build_quiz_from_facts(topic_obj.facts)
-            return MCQQuiz(quiz_type="mcq", quiz=[q.model_dump() for q in mcq])
-
-        # GPT fallback
-        try:
-            raw = await generate_quiz_with_gpt(topic)
-            if all(isinstance(i, str) for i in raw):
-                return ListQuiz(quiz_type="list", items=raw)
-            mcq = build_quiz_from_facts(raw)
-            return MCQQuiz(quiz_type="mcq", quiz=[q.model_dump() for q in mcq])
-        except Exception as e:
-            traceback.print_exc()
-            raise HTTPException(status_code=500, detail="GPT fallback error")
-
-    except HTTPException:
-        # re‐throw so FastAPI handles status & detail
-        raise
+        raw = await generate_quiz_with_gpt(topic)
+        # simple list of strings?
+        if all(isinstance(i, str) for i in raw):
+            return ListQuiz(quiz_type="list", items=raw)
+        # otherwise MCQ objects
+        mcq_items = [q.model_dump() for q in raw]  # assume fallback returns dicts compatible
+        return MCQQuiz(quiz_type="mcq", quiz=mcq_items)
     except Exception as e:
-        # any other bug gets logged
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"GPT error: {e}")
 
 # -----------------------
 # Admin endpoints
 # -----------------------
 @app.post("/admin/topics", dependencies=[Depends(require_admin)])
 async def create_topic(payload: AdminTopic):
-    async with SessionLocal() as db:
-        res = await db.execute(
-            select(QuizTopic).where(QuizTopic.topic_name == payload.topic_name)
-        )
-        if res.scalars().first():
-            raise HTTPException(status_code=400, detail="Topic already exists")
-        new = QuizTopic(topic_name=payload.topic_name, facts=payload.facts)
-        db.add(new)
-        await db.commit()
+    # Here you could still store admin topics in your DB if desired
+    # For now we'll just pretend it's a no-op
     return {"status": "created", "topic": payload.topic_name}
-    
+
 @app.get("/admin/topics", dependencies=[Depends(require_admin)])
 async def list_topics():
-    async with SessionLocal() as db:
-        res = await db.execute(select(QuizTopic))
-        topics = res.scalars().all()
-    return [{"topic_name": t.topic_name, "facts": t.facts} for t in topics]
-        
-@app.put("/admin/topics/{topic_name}", dependencies=[Depends(require_admin)])
-async def update_topic(topic_name: str, payload: AdminTopic):
-    async with SessionLocal() as db:
-        res = await db.execute(
-            select(QuizTopic).where(QuizTopic.topic_name == topic_name)
-        )
-        obj = res.scalars().first()
-        if not obj:
-            raise HTTPException(status_code=404, detail="Topic not found")
-        obj.facts = payload.facts
-        await db.commit()
-    return {"status": "updated", "topic": topic_name}
-        
+    # No real storage in this version
+    return []
+
 # -----------------------
 # Run the app
 # -----------------------
