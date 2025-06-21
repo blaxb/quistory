@@ -1,9 +1,7 @@
-# fallback_gpt.py
-
 import os
 import httpx
 import json
-from typing import List
+from typing import List, Union, Dict, Any
 
 SYSTEM_PROMPT = (
     "You are a helpful assistant that generates a quiz. "
@@ -11,8 +9,7 @@ SYSTEM_PROMPT = (
     "each one a quiz item for that topic."
 )
 
-async def generate_quiz_with_gpt(topic: str) -> List[str]:
-    """Call OpenAI via HTTPX and return a simple list of quiz items."""
+async def generate_quiz_with_gpt(topic: str) -> List[Union[str, Dict[str, Any]]]:
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise RuntimeError("Missing OPENAI_API_KEY")
@@ -26,7 +23,7 @@ async def generate_quiz_with_gpt(topic: str) -> List[str]:
         "model": "gpt-3.5-turbo",
         "messages": [
             {"role": "system",  "content": SYSTEM_PROMPT},
-            {"role": "user",    "content": f"Generate a quiz list on \"{topic}\"."}
+            {"role": "user",    "content": f"Generate a quiz for “{topic}”."}
         ],
         "max_tokens": 500,
         "n": 1,
@@ -40,7 +37,15 @@ async def generate_quiz_with_gpt(topic: str) -> List[str]:
 
     content = data["choices"][0]["message"]["content"]
 
-    # 1) Try JSON-parsed list
+    # ── Strip any ```…``` code fences ─────────────────
+    lines = content.splitlines()
+    if lines and lines[0].startswith("```"):
+        # drop the first and last fence lines if they exist
+        if lines[-1].startswith("```"):
+            lines = lines[1:-1]
+        content = "\n".join(lines)
+
+    # ── 1) Try to JSON‐parse a clean array ────────────────
     try:
         items = json.loads(content)
         if isinstance(items, list) and all(isinstance(i, str) for i in items):
@@ -48,8 +53,8 @@ async def generate_quiz_with_gpt(topic: str) -> List[str]:
     except json.JSONDecodeError:
         pass
 
-    # 2) Fallback: split lines, strip bullets or numbering
-    lines = [line.strip() for line in content.splitlines() if line.strip()]
-    cleaned = [line.lstrip("-0123456789. ").strip() for line in lines]
+    # ── 2) Fallback: split on lines and strip bullets ────
+    lines = [l.strip() for l in content.splitlines() if l.strip()]
+    cleaned = [l.lstrip("-0123456789. ").strip() for l in lines]
     return cleaned
 
