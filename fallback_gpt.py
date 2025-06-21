@@ -1,22 +1,23 @@
-import os
+kimport os
 import httpx
 import json
 from typing import List
 
 # ────────────────────────────────────────────────────────────────────────────
-# New system prompt: ask for items, not questions
+# System prompt: ask only for a JSON array of concrete items (no questions!)
 # ────────────────────────────────────────────────────────────────────────────
 SYSTEM_PROMPT = (
-    "You are a helpful assistant that, when given a topic representing a category "
-    "(e.g. “U.S. Presidents” or “NCAA Division I basketball programs”), "
-    "returns exactly a JSON array of the concrete items that belong to that category. "
-    "Do NOT output any questions or commentary—just the array of strings. "
-    "Example output for “U.S. Presidents”: "
-    "[\"George Washington\", \"John Adams\", \"Thomas Jefferson\", …]."
+    "You are a helpful assistant.  When I give you a topic that represents a "
+    "category (for example “U.S. Presidents” or “NCAA Division I basketball programs”), "
+    "you must respond with exactly one thing: a JSON array of the actual items "
+    "in that category, as strings.  Do NOT output any questions, explanations, or "
+    "bullets—only the JSON array.  \n\n"
+    "Example for “U.S. Presidents”:\n"
+    "[\"George Washington\", \"John Adams\", \"Thomas Jefferson\", …]"
 )
 
 async def generate_quiz_with_gpt(topic: str) -> List[str]:
-    """Call OpenAI via HTTPX and return a simple list of quiz items (answers)."""
+    """Call OpenAI’s chat endpoint and parse out a straight list of items."""
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise RuntimeError("Missing OPENAI_API_KEY")
@@ -29,12 +30,12 @@ async def generate_quiz_with_gpt(topic: str) -> List[str]:
     payload = {
         "model": "gpt-3.5-turbo",
         "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": f"List all “{topic}” as a JSON array of strings."}
+            {"role": "system",  "content": SYSTEM_PROMPT},
+            {"role": "user",    "content": f"List all “{topic}” as a JSON array of strings."}
         ],
         "max_tokens": 800,
         "n": 1,
-        "temperature": 0.3,
+        "temperature": 0.2,
     }
 
     async with httpx.AsyncClient() as client:
@@ -42,18 +43,18 @@ async def generate_quiz_with_gpt(topic: str) -> List[str]:
         resp.raise_for_status()
         data = resp.json()
 
-    content = data["choices"][0]["message"]["content"]
+    raw = data["choices"][0]["message"]["content"]
 
-    # 1) Try JSON‐parsing directly
+    # 1) Try to parse it directly as JSON:
     try:
-        items = json.loads(content)
+        items = json.loads(raw)
         if isinstance(items, list) and all(isinstance(i, str) for i in items):
             return items
     except json.JSONDecodeError:
         pass
 
-    # 2) Fallback: strip bullets/numbering and return lines
-    lines = [line.strip() for line in content.splitlines() if line.strip()]
-    cleaned = [line.lstrip("-0123456789. ").strip() for line in lines]
+    # 2) Fallback: split lines and strip any numbering/bullets
+    lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
+    cleaned = [ln.lstrip("-0123456789. ").strip() for ln in lines]
     return cleaned
 
