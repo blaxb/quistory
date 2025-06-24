@@ -1,4 +1,4 @@
-k# streamlit_app.py
+# streamlit_app.py
 import time
 import requests
 import streamlit as st
@@ -37,67 +37,77 @@ st.title("Guess.ai")
 
 # ─── Load a new quiz ─────────────────────────────────────
 topic = st.text_input("Enter quiz topic")
+
 if st.button("Load Quiz") and topic.strip():
-    resp = requests.post(
-        f"{BACKEND_URL}/generate-quiz",
-        json={"topic": topic.strip()},
-    )
-    # Show backend status & raw response on error
-    if resp.status_code != 200:
-        st.error(f"Backend returned {resp.status_code}")
-        st.text(resp.text)
-        st.stop()
-
     try:
-        data = resp.json()
-    except Exception:
-        st.error("Invalid JSON from backend:")
-        st.text(resp.text)
-        st.stop()
-
-    if "session_id" not in data:
-        st.error("Missing `session_id` in response:")
-        st.json(data)
-        st.stop()
-
-    # stash session_id + answers
-    st.session_state.session_id = data["session_id"]
-    if data.get("quiz_type") == "list":
-        st.session_state.answers = data.get("items", [])
+        resp = requests.post(
+            f"{BACKEND_URL}/generate-quiz",
+            json={"topic": topic.strip()},
+            timeout=10,
+        )
+    except Exception as e:
+        st.error(f"🚨 Network error: {e}")
+        # skip the rest of the block
     else:
-        st.session_state.answers = [q["correctAnswer"] for q in data.get("quiz", [])]
-
-    st.session_state.guessed = set()
-    st.session_state.start_time = time.time()
-    st.session_state.give_up = False
+        if resp.status_code != 200:
+            st.error(f"🚨 Backend error {resp.status_code}")
+            st.text(resp.text)
+        else:
+            try:
+                data = resp.json()
+            except ValueError:
+                st.error("🚨 Invalid JSON from backend")
+                st.text(resp.text)
+            else:
+                if "session_id" not in data:
+                    st.error("🚨 Missing `session_id` in response")
+                    st.json(data)
+                else:
+                    # stash session_id + answers
+                    st.session_state.session_id = data["session_id"]
+                    if data.get("quiz_type") == "list":
+                        st.session_state.answers = data.get("items", [])
+                    else:
+                        st.session_state.answers = [
+                            q.get("correctAnswer") for q in data.get("quiz", [])
+                        ]
+                    st.session_state.guessed = set()
+                    st.session_state.start_time = time.time()
+                    st.session_state.give_up = False
 
 # ─── Quiz in progress / results ─────────────────────────
 if "answers" in st.session_state:
     st.header(f"{topic.strip().title()} Quiz")
+
+    # elapsed time
     elapsed = int(time.time() - st.session_state.start_time)
     st.write(f"Time elapsed: {elapsed} seconds")
 
-    # Score display
+    # score display
     total = len(st.session_state.answers)
     correct = len(st.session_state.guessed)
     percent = (correct / total) * 100 if total else 0
     st.markdown(f"**Score:** {correct} / {total} ({percent:.0f} %)")
-    
-    # Guess handler
+
+    # handle a guess
     def handle_guess():
-        resp = requests.post(
-            f"{BACKEND_URL}/check-guess",
-            json={
-                "session_id": st.session_state.session_id,
-                "guess": st.session_state.guess_input,
-            },
-        )
-        if resp.status_code != 200:
-            st.error(f"check-guess error {resp.status_code}")
-            st.stop()
-        result = resp.json()
-        if result.get("correct"):
-            st.session_state.guessed.add(result.get("matched_answer"))
+        try:
+            r = requests.post(
+                f"{BACKEND_URL}/check-guess",
+                json={
+                    "session_id": st.session_state.session_id,
+                    "guess": st.session_state.guess_input,
+                },
+                timeout=5,
+            )
+            if r.status_code == 200:
+                res = r.json()
+                if res.get("correct"):
+                    st.session_state.guessed.add(res.get("matched_answer"))
+            else:
+                st.warning(f"⚠️ check-guess returned {r.status_code}")
+        except Exception as e:
+            st.error(f"🚨 Guess error: {e}")
 
     with st.form("guess_form", clear_on_submit=True):
         st.text_input("Your guess", key="guess_input")
@@ -107,7 +117,7 @@ if "answers" in st.session_state:
     if st.button("Give Up"):
         st.session_state.give_up = True
 
-    # Display answers
+    # display answers
     num_cols = min(5, len(st.session_state.answers))
     cols = st.columns(num_cols)
     for idx, ans in enumerate(st.session_state.answers):
@@ -119,5 +129,7 @@ if "answers" in st.session_state:
         elif st.session_state.give_up:
             cls += " missed"
             disp = ans
-        cols[idx % num_cols].markdown(f'<div class="{cls}">{disp}</div>', unsafe_allow_html=True)
+        cols[idx % num_cols].markdown(
+            f'<div class="{cls}">{disp}</div>', unsafe_allow_html=True
+        )
 
