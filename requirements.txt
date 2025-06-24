@@ -1,2 +1,9 @@
 streamlit
-requests
+request
+fastapi
+uvicorn[standard]
+pydantic
+fallback-gpt   # or however you’ve named that local module
+openai
+rapidfuzz
+
