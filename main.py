@@ -1,9 +1,19 @@
+# main.py
 import traceback
+import re
+from uuid import uuid4
+from typing import List, Literal, Union, Optional
+
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from typing import List, Literal, Union, Any
+from rapidfuzz import fuzz
 
-from fallback_gpt import generate_quiz_with_gpt
+from fallback_gpt import generate_quiz_with_gpt  # your existing GPT wrapper
+
+app = FastAPI(title="Guess.ai Quiz API")
+
+# In‐memory store for quizzes
+quizzes: dict[str, List[str]] = {}
 
 # ─── Schemas ───────────────────────────────────────────
 class MCQQuestion(BaseModel):
@@ -12,10 +22,12 @@ class MCQQuestion(BaseModel):
     wrongAnswers: List[str]
 
 class ListQuiz(BaseModel):
+    session_id: str
     quiz_type: Literal["list"]
     items: List[str]
 
 class MCQQuiz(BaseModel):
+    session_id: str
     quiz_type: Literal["mcq"]
     quiz: List[MCQQuestion]
 
@@ -24,29 +36,66 @@ QuizResponse = Union[ListQuiz, MCQQuiz]
 class QuizRequest(BaseModel):
     topic: str
 
-# ─── App init ───────────────────────────────────────────
-app = FastAPI(title="Guess.ai Quiz API")
+class CheckGuessIn(BaseModel):
+    session_id: str
+    guess: str
 
+class CheckGuessOut(BaseModel):
+    correct: bool
+    matched_answer: Optional[str] = None
+
+# ─── Helpers ────────────────────────────────────────────
+def normalize(text: str) -> str:
+    """Lowercase & strip non-alphanumeric."""
+    return re.sub(r"[^0-9a-z]", "", text.strip().lower())
+
+# ─── Health check ──────────────────────────────────────
 @app.get("/healthz")
 def healthz():
     return {"status": "ok"}
 
+# ─── Generate quiz + stash answers ─────────────────────
 @app.post("/generate-quiz", response_model=QuizResponse)
 async def generate_quiz(payload: QuizRequest):
-    topic = payload.topic.strip()
     try:
-        raw = await generate_quiz_with_gpt(topic)
+        raw = await generate_quiz_with_gpt(payload.topic.strip())
+        session_id = str(uuid4())
 
-        # If we got back a simple list of strings:
+        # list-style quiz
         if all(isinstance(i, str) for i in raw):
-            return ListQuiz(quiz_type="list", items=raw)
+            quizzes[session_id] = raw
+            return ListQuiz(session_id=session_id, quiz_type="list", items=raw)
 
-        # Otherwise assume it's MCQ‐compatible dicts:
-        mcqs = [MCQQuestion(**q) for q in raw]  # q must have question/correctAnswer/wrongAnswers
-        return MCQQuiz(quiz_type="mcq", quiz=mcqs)
+        # MCQ style
+        mcqs = [MCQQuestion(**q) for q in raw]
+        quizzes[session_id] = [q.correctAnswer for q in mcqs]
+        return MCQQuiz(session_id=session_id, quiz_type="mcq", quiz=mcqs)
 
     except Exception as e:
         traceback.print_exc()
-        # return the error message so you can see it in your client
         raise HTTPException(status_code=500, detail=str(e))
+
+# ─── Check a guess against stored answers ───────────────
+@app.post("/check-guess", response_model=CheckGuessOut)
+def check_guess(data: CheckGuessIn):
+    answers = quizzes.get(data.session_id, [])
+    norm_guess = normalize(data.guess)
+
+    for ans in answers:
+        norm_ans = normalize(ans)
+
+        # 1) exact full-string match
+        if norm_guess == norm_ans:
+            return CheckGuessOut(correct=True, matched_answer=ans)
+
+        # 2) exact last-name match (for multi-word answers)
+        last_token = normalize(ans.split()[-1])
+        if norm_guess == last_token and len(norm_guess) >= 3:
+            return CheckGuessOut(correct=True, matched_answer=ans)
+
+        # 3) fuzzy full-string match at 80% threshold
+        if fuzz.ratio(norm_guess, norm_ans) >= 80:
+            return CheckGuessOut(correct=True, matched_answer=ans)
+
+    return CheckGuessOut(correct=False)
 

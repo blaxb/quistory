@@ -1,27 +1,29 @@
 # streamlit_app.py
+import os
 import time
 import requests
 import streamlit as st
 
-# ─── Site-wide CSS (Times New Roman + uniform boxes + wrap + black text) ───
+# ─── Configuration ─────────────────────────────────────
+BACKEND_URL = os.getenv("BACKEND_URL", "http://127.0.0.1:8000")
+
+# ─── Site-wide CSS (Times New Roman + uniform boxes + adjusted size + black text) ───
 st.markdown(
     """
     <style>
-      * {
-        font-family: "Times New Roman", serif !important;
-      }
+      * { font-family: "Times New Roman", serif !important; }
       .box {
         background-color: #ffffff;
         border: 1px solid #cccccc;
         padding: 8px;
-        margin: 4px 0;
-        width: 100%;
-        min-height: 60px;
+        margin: 4px;
+        min-width: 150px !important;
+        max-width: 200px !important;
+        min-height: 80px !important;
         display: flex;
         align-items: center;
         justify-content: center;
         text-align: center;
-        white-space: normal !important;
         word-break: break-word;
         color: #000000 !important;
       }
@@ -40,21 +42,28 @@ st.markdown(
 
 st.title("Guess.ai")
 
-# --- Load a new quiz ---
+# ─── Load a new quiz ─────────────────────────────────────
 topic = st.text_input("Enter quiz topic")
-if st.button("Load Quiz"):
-    if topic.strip():
-        resp = requests.post(
-            "http://127.0.0.1:8000/generate-quiz",
-            json={"topic": topic.strip()},
-        )
-        resp.raise_for_status()
-        st.session_state.answers = resp.json().get("items", [])
-        st.session_state.guessed = set()
-        st.session_state.start_time = time.time()
-        st.session_state.give_up = False
+if st.button("Load Quiz") and topic.strip():
+    resp = requests.post(
+        f"{BACKEND_URL}/generate-quiz",
+        json={"topic": topic.strip()},
+    )
+    resp.raise_for_status()
+    data = resp.json()
 
-# --- Quiz in progress / results ---
+    # stash session_id + answers
+    st.session_state.session_id = data["session_id"]
+    if data["quiz_type"] == "list":
+        st.session_state.answers = data["items"]
+    else:
+        st.session_state.answers = [q["correctAnswer"] for q in data["quiz"]]
+
+    st.session_state.guessed = set()
+    st.session_state.start_time = time.time()
+    st.session_state.give_up = False
+
+# ─── Quiz in progress / results ─────────────────────────
 if "answers" in st.session_state:
     st.header(f"{topic.strip().title()} Quiz")
 
@@ -62,26 +71,39 @@ if "answers" in st.session_state:
     elapsed = int(time.time() - st.session_state.start_time)
     st.write(f"Time elapsed: {elapsed} seconds")
 
-    # handle a guess
-    def handle_guess():
-        guess = st.session_state.guess_input.strip().lower()
-        for ans in st.session_state.answers:
-            if guess == ans.lower():
-                st.session_state.guessed.add(ans)
-                break
+    # ─── Score display ────────────────────────────────
+    total = len(st.session_state.answers)
+    correct = len(st.session_state.guessed)
+    percent = (correct / total) * 100 if total else 0
+    st.markdown(f"**Score:** {correct} / {total} ({percent:.0f} %)")
+    # ────────────────────────────────────────────────
 
-    # replace input + button with a form so Enter submits
+    # handle a guess by calling backend
+    def handle_guess():
+        resp = requests.post(
+            f"{BACKEND_URL}/check-guess",
+            json={
+                "session_id": st.session_state.session_id,
+                "guess": st.session_state.guess_input,
+            },
+        )
+        resp.raise_for_status()
+        result = resp.json()
+        if result.get("correct"):
+            st.session_state.guessed.add(result.get("matched_answer"))
+
+    # input form so Enter submits
     with st.form("guess_form", clear_on_submit=True):
         st.text_input("Your guess", key="guess_input")
-        submitted = st.form_submit_button("Guess")
-        if submitted:
+        if st.form_submit_button("Guess"):
             handle_guess()
 
     if st.button("Give Up"):
         st.session_state.give_up = True
 
-    # display answer boxes in an 8-column grid
-    cols = st.columns(8)
+    # display answer boxes in an up-to-5-column grid
+    num_cols = min(5, len(st.session_state.answers))
+    cols = st.columns(num_cols)
     for idx, ans in enumerate(st.session_state.answers):
         cls = "box"
         disp = ""
@@ -91,5 +113,5 @@ if "answers" in st.session_state:
         elif st.session_state.give_up:
             cls += " missed"
             disp = ans
-        cols[idx % 8].markdown(f'<div class="{cls}">{disp}</div>', unsafe_allow_html=True)
+        cols[idx % num_cols].markdown(f'<div class="{cls}">{disp}</div>', unsafe_allow_html=True)
 

@@ -6,4 +6,5 @@ pydantic
 python-dotenv
 openai
 aiosqlite
-
+fallback_gpt
+rapidfuzz
