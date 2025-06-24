@@ -1,4 +1,4 @@
-# streamlit_app.py
+k# streamlit_app.py
 import time
 import requests
 import streamlit as st
@@ -42,15 +42,30 @@ if st.button("Load Quiz") and topic.strip():
         f"{BACKEND_URL}/generate-quiz",
         json={"topic": topic.strip()},
     )
-    resp.raise_for_status()
-    data = resp.json()
+    # Show backend status & raw response on error
+    if resp.status_code != 200:
+        st.error(f"Backend returned {resp.status_code}")
+        st.text(resp.text)
+        st.stop()
+
+    try:
+        data = resp.json()
+    except Exception:
+        st.error("Invalid JSON from backend:")
+        st.text(resp.text)
+        st.stop()
+
+    if "session_id" not in data:
+        st.error("Missing `session_id` in response:")
+        st.json(data)
+        st.stop()
 
     # stash session_id + answers
     st.session_state.session_id = data["session_id"]
-    if data["quiz_type"] == "list":
-        st.session_state.answers = data["items"]
+    if data.get("quiz_type") == "list":
+        st.session_state.answers = data.get("items", [])
     else:
-        st.session_state.answers = [q["correctAnswer"] for q in data["quiz"]]
+        st.session_state.answers = [q["correctAnswer"] for q in data.get("quiz", [])]
 
     st.session_state.guessed = set()
     st.session_state.start_time = time.time()
@@ -59,19 +74,16 @@ if st.button("Load Quiz") and topic.strip():
 # ─── Quiz in progress / results ─────────────────────────
 if "answers" in st.session_state:
     st.header(f"{topic.strip().title()} Quiz")
-
-    # show elapsed time
     elapsed = int(time.time() - st.session_state.start_time)
     st.write(f"Time elapsed: {elapsed} seconds")
 
-    # ─── Score display ────────────────────────────────
+    # Score display
     total = len(st.session_state.answers)
     correct = len(st.session_state.guessed)
     percent = (correct / total) * 100 if total else 0
     st.markdown(f"**Score:** {correct} / {total} ({percent:.0f} %)")
-    # ────────────────────────────────────────────────
-
-    # handle a guess by calling backend
+    
+    # Guess handler
     def handle_guess():
         resp = requests.post(
             f"{BACKEND_URL}/check-guess",
@@ -80,8 +92,32 @@ if "answers" in st.session_state:
                 "guess": st.session_state.guess_input,
             },
         )
-        resp.raise_for_status()
+        if resp.status_code != 200:
+            st.error(f"check-guess error {resp.status_code}")
+            st.stop()
         result = resp.json()
         if result.get("correct"):
-            st.session_state.g_
+            st.session_state.guessed.add(result.get("matched_answer"))
+
+    with st.form("guess_form", clear_on_submit=True):
+        st.text_input("Your guess", key="guess_input")
+        if st.form_submit_button("Guess"):
+            handle_guess()
+
+    if st.button("Give Up"):
+        st.session_state.give_up = True
+
+    # Display answers
+    num_cols = min(5, len(st.session_state.answers))
+    cols = st.columns(num_cols)
+    for idx, ans in enumerate(st.session_state.answers):
+        cls = "box"
+        disp = ""
+        if ans in st.session_state.guessed:
+            cls += " correct"
+            disp = ans
+        elif st.session_state.give_up:
+            cls += " missed"
+            disp = ans
+        cols[idx % num_cols].markdown(f'<div class="{cls}">{disp}</div>', unsafe_allow_html=True)
 
