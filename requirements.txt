@@ -1,9 +1,8 @@
-streamlit
-request
-fastapi
-uvicorn[standard]
-pydantic
-fallback-gpt   # or however you’ve named that local module
-openai
-rapidfuzz
+fastapi==0.115.13
+uvicorn[standard]==0.34.3
+pydantic==2.11.7
+openai==1.91.0
+rapidfuzz==3.13.0
+httpx==0.24.1
+python-dotenv==1.1.0   # if you’re loading .env
 
