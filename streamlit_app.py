@@ -1,12 +1,12 @@
 # streamlit_app.py
-import time        
+import time
 import requests
 import streamlit as st
 
 # ─── Configuration ─────────────────────────────────────
 BACKEND_URL = "https://guess-ai-backend.onrender.com"
 
-# ─── Site-wide CSS (Times New Roman + uniform boxes + adjusted size + black text) ───
+# ─── Site-wide CSS ─────────────────────────────────────
 st.markdown(
     """
     <style>
@@ -26,14 +26,8 @@ st.markdown(
         word-break: break-word;
         color: #000000 !important;
       }
-      .correct {
-        background-color: #90ee90 !important;
-        color: #000000 !important;
-      }
-      .missed {
-        background-color: #f08080 !important;
-        color: #000000 !important;
-      }
+      .correct { background-color: #90ee90 !important; color: #000000 !important; }
+      .missed  { background-color: #f08080 !important; color: #000000 !important; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -89,22 +83,5 @@ if "answers" in st.session_state:
         resp.raise_for_status()
         result = resp.json()
         if result.get("correct"):
-            st.session_state.guessed.add(result.get("matched_answer"))
-
-    # input form so Enter submits
-    with st.form("guess_form", clear_on_submit=True):
-        st.text_input("Your guess", key="guess_input")
-        if st.form_submit_button("Guess"):
-            handle_guess()
-
-    if st.button("Give Up"):
-        st.session_state.give_up = True
-
-    # display answer boxes in an up-to-5-column grid
-    num_cols = min(5, len(st.session_state.answers))
-    cols = st.columns(num_cols)
-    for idx, ans in enumerate(st.session_state.answers):
-        cls = "box"
-        disp = ""
-        if ans in st.session_state.guessed:
+            st.session_state.g_
 
