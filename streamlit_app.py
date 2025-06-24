@@ -1,12 +1,11 @@
 # streamlit_app.py
-import os
-import time
+import time        
 import requests
 import streamlit as st
 
 # ─── Configuration ─────────────────────────────────────
-BACKEND_URL = os.getenv("BACKEND_URL", "http://127.0.0.1:8000")
-+ BACKEND_URL = "https://guess-ai-backend.onrender.com"
+BACKEND_URL = "https://guess-ai-backend.onrender.com"
+
 # ─── Site-wide CSS (Times New Roman + uniform boxes + adjusted size + black text) ───
 st.markdown(
     """
@@ -108,10 +107,4 @@ if "answers" in st.session_state:
         cls = "box"
         disp = ""
         if ans in st.session_state.guessed:
-            cls += " correct"
-            disp = ans
-        elif st.session_state.give_up:
-            cls += " missed"
-            disp = ans
-        cols[idx % num_cols].markdown(f'<div class="{cls}">{disp}</div>', unsafe_allow_html=True)
 
