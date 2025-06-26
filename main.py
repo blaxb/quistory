@@ -1,4 +1,4 @@
-k# main.py
+# main.py
 import os
 import re
 import traceback
