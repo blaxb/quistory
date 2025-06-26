@@ -1,4 +1,4 @@
-# main.py
+k# main.py
 import os
 import re
 import traceback
@@ -48,66 +48,79 @@ class CheckGuessOut(BaseModel):
 def normalize(text: str) -> str:
     return re.sub(r"[^0-9a-z]", "", text.strip().lower())
 
-async def fetch_wikipedia_list(topic: str) -> List[str]:
-    """
-    Scrape the first useful <ul> from 'List of {topic}' on Wikipedia.
-    """
-    title = f"List of {topic}"
-    params = {
-        "action": "parse",
-        "page": title,
-        "prop": "text",
-        "format": "json",
-        "redirects": True,
-    }
-    try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            r = await client.get("https://en.wikipedia.org/w/api.php", params=params)
-        r.raise_for_status()
-        data = r.json()
-        html = data.get("parse", {}).get("text", {}).get("*", "")
-    except Exception:
-        return []
-
-    from bs4 import BeautifulSoup
-
-    soup = BeautifulSoup(html, "html.parser")
-    for ul in soup.find_all("ul"):
-        items = [li.get_text().strip() for li in ul.find_all("li", recursive=False)]
-        if len(items) >= 5:
-            return items
-    return []
-
 async def verify_with_wikipedia(items: List[str]) -> List[str]:
     """
-    Only keep items that actually have a Wikipedia summary page.
+    Verify each item by:
+      1) Trying exact summary slug.
+      2) If that fails, searching for the item and using the top hit.
+      3) Only keep if we ultimately get a 200 summary.
     """
-    verified = []
+    verified: List[str] = []
     async with httpx.AsyncClient(timeout=5) as client:
         for item in items:
             slug = item.replace(" ", "_")
+            got = False
+
+            # 1) exact slug lookup
             try:
-                resp = await client.get(
+                res = await client.get(
                     f"https://en.wikipedia.org/api/rest_v1/page/summary/{slug}"
                 )
-                if resp.status_code == 200:
+                if res.status_code == 200:
                     verified.append(item)
-            except Exception:
-                continue
-    return verified
+                    got = True
+                else:
+                    # fallthrough to search
+                    pass
+            except Exception as e:
+                print(f"[verify] exact lookup error for '{item}': {e}")
 
-# ─── Health check ──────────────────────────────────────
+            if got:
+                continue
+
+            # 2) search fallback
+            try:
+                search_params = {
+                    "action": "query",
+                    "list": "search",
+                    "srsearch": item,
+                    "format": "json",
+                    "utf8": 1,
+                }
+                sres = await client.get(
+                    "https://en.wikipedia.org/w/api.php",
+                    params=search_params,
+                )
+                if sres.status_code == 200:
+                    data = sres.json()
+                    hits = data.get("query", {}).get("search", [])
+                    if hits:
+                        # take the first hit's title
+                        title = hits[0]["title"].replace(" ", "_")
+                        # fetch its summary
+                        pres = await client.get(
+                            f"https://en.wikipedia.org/api/rest_v1/page/summary/{title}"
+                        )
+                        if pres.status_code == 200:
+                            verified.append(item)
+                            got = True
+            except Exception as e:
+                print(f"[verify] search lookup error for '{item}': {e}")
+
+            # if still not got, item is dropped
+        return verified
+
+# ─── Endpoints ─────────────────────────────────────────
 @app.get("/healthz")
 def healthz():
     return {"status": "ok"}
 
-# ─── Generate quiz ─────────────────────────────────────
-@app.post("/generate-quiz", response_model=QuizResponse)
+@app.post("/generate-quiz", response_model=ListQuiz)
 async def generate_quiz(payload: QuizRequest):
     topic_in = payload.topic.strip()
     session_id = str(uuid4())
 
-    # 1) Detect "top N ..." for exact-count GPT prompt
+    # Detect "top N ..." for exact-count GPT prompt
     m = re.match(r"top\s+(\d+)\s+(.*)", topic_in, re.IGNORECASE)
     if m:
         count = int(m.group(1))
@@ -121,33 +134,29 @@ async def generate_quiz(payload: QuizRequest):
             if isinstance(raw, list) and all(isinstance(i, str) for i in raw):
                 items = raw
             else:
-                raise ValueError("GPT format error")
+                raise ValueError("GPT did not return a list of strings")
         except Exception as e:
             print(f"[generate_quiz] GPT error: {e}")
             items = []
     else:
-        # 2) Try Wikipedia list scrape
+        # Fallback to generic GPT
         count = None
         base = topic_in
-        items = await fetch_wikipedia_list(base)
+        try:
+            raw = await generate_quiz_with_gpt(base)
+            if isinstance(raw, list) and all(isinstance(i, str) for i in raw):
+                items = raw
+            else:
+                raise ValueError("GPT did not return a list of strings")
+        except Exception as e:
+            print(f"[generate_quiz] GPT error: {e}")
+            items = []
 
-        # 3) If Wikipedia failed, fallback to GPT
-        if not items:
-            try:
-                raw = await generate_quiz_with_gpt(base)
-                if isinstance(raw, list) and all(isinstance(i, str) for i in raw):
-                    items = raw
-                else:
-                    raise ValueError("GPT format error")
-            except Exception as e:
-                print(f"[generate_quiz] GPT error: {e}")
-                items = []
-
-    # 4) If we asked for a count, warn on mismatch
+    # Warn if exact count mismatch
     if count is not None and len(items) != count:
         print(f"[generate_quiz] warning: got {len(items)}/{count} for '{topic_in}'")
 
-    # 5) Verify via Wikipedia to drop hallucinations
+    # Verify with search‐based Wikipedia lookup
     try:
         verified = await verify_with_wikipedia(items)
         if verified:
@@ -155,11 +164,10 @@ async def generate_quiz(payload: QuizRequest):
     except Exception as e:
         print(f"[generate_quiz] verification error: {e}")
 
-    # 6) Store & always return a ListQuiz for simple lists
+    # Always return ListQuiz
     quizzes[session_id] = items
     return ListQuiz(session_id=session_id, quiz_type="list", items=items)
 
-# ─── Check a guess ─────────────────────────────────────
 @app.post("/check-guess", response_model=CheckGuessOut)
 def check_guess(data: CheckGuessIn):
     answers = quizzes.get(data.session_id, [])
