@@ -45,6 +45,7 @@ class CheckGuessOut(BaseModel):
 
 # ─── Helpers ────────────────────────────────────────────
 def normalize(text: str) -> str:
+    # strip spaces/punctuation, lowercase
     return re.sub(r"[^0-9a-z]", "", text.strip().lower())
 
 # ─── Health check ──────────────────────────────────────
@@ -65,7 +66,7 @@ async def generate_quiz(payload: QuizRequest):
             return ListQuiz(session_id=session_id, quiz_type="list", items=raw)
 
         # Otherwise assume MCQ dicts:
-        mcqs = [MCQQuestion(**q) for q in raw]  # q: question/correctAnswer/wrongAnswers
+        mcqs = [MCQQuestion(**q) for q in raw]
         quizzes[session_id] = [q.correctAnswer for q in mcqs]
         return MCQQuiz(session_id=session_id, quiz_type="mcq", quiz=mcqs)
 
@@ -78,10 +79,24 @@ async def generate_quiz(payload: QuizRequest):
 def check_guess(data: CheckGuessIn):
     answers = quizzes.get(data.session_id, [])
     guess = normalize(data.guess)
+
     for ans in answers:
         na = normalize(ans)
-        # first-word or last-name rule, then fuzzy ≥80%
-        if guess == na or na.endswith(guess) or fuzz.ratio(guess, na) >= 80:
+
+        # 1) Exact match
+        if guess == na:
             return CheckGuessOut(correct=True, matched_answer=ans)
+
+        # 2) Whole-word match (e.g. last name or acronym) if guess length >= 2
+        #    Note: since normalize removes spaces, split on original ans
+        words = [normalize(w) for w in ans.split()]
+        if len(guess) >= 2 and guess in words:
+            return CheckGuessOut(correct=True, matched_answer=ans)
+
+        # 3) Fuzzy match only for longer strings (both guess and answer >= 4 chars)
+        #    with a strict 90% threshold
+        if len(guess) >= 4 and len(na) >= 4 and fuzz.ratio(guess, na) >= 90:
+            return CheckGuessOut(correct=True, matched_answer=ans)
+
     return CheckGuessOut(correct=False)
 

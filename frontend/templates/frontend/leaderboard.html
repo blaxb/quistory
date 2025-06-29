@@ -1,0 +1,39 @@
+{# frontend/templates/frontend/leaderboard.html #}
+{% extends "base.html" %}
+
+{% block content %}
+  <h2>Leaderboard</h2>
+  <table style="width:100%; border-collapse: collapse;">
+    <thead>
+      <tr>
+        <th style="border:1px solid #ccc; padding:8px; text-align:left;">User</th>
+        <th style="border:1px solid #ccc; padding:8px; text-align:right;">Raw Attempts</th>
+        <th style="border:1px solid #ccc; padding:8px; text-align:right;">Quizzes Counted</th>
+        <th style="border:1px solid #ccc; padding:8px; text-align:right;">Avg % Correct</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for user in leaders %}
+        <tr>
+          <td style="border:1px solid #ccc; padding:8px;">{{ user.username }}</td>
+          <td style="border:1px solid #ccc; padding:8px; text-align:right;">
+            {{ user.total_attempts }}
+          </td>
+          <td style="border:1px solid #ccc; padding:8px; text-align:right;">
+            {{ user.quizzes_counted }}
+          </td>
+          <td style="border:1px solid #ccc; padding:8px; text-align:right;">
+            {{ user.avg_percent|floatformat:1 }}%
+          </td>
+        </tr>
+      {% empty %}
+        <tr>
+          <td colspan="4" style="padding:8px; text-align:center;">
+            No users yet (need ≥50 quiz attempts to qualify).
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}
+

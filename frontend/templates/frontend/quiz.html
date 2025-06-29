@@ -1,0 +1,153 @@
+{# frontend/templates/frontend/quiz.html #}
+{% extends "base.html" %}
+
+{% block content %}
+  <h2>Generate a Quiz</h2>
+
+  <form method="post" style="margin-bottom:1em;">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <button type="submit">Load Quiz</button>
+  </form>
+
+  {% if quiz %}
+    <hr>
+    <h3>{{ form.cleaned_data.topic|title }} Quiz</h3>
+
+    {# Embedding confetti library #}
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.5.1/dist/confetti.browser.min.js"></script>
+
+    {# Embed the raw quiz JSON exactly once #}
+    {{ quiz|json_script:"quiz-data" }}
+
+    {# Guess controls #}
+    <div style="margin:1em 0;">
+      <input id="guess-input"
+             placeholder="Type your guess…"
+             style="padding:0.5em; width:600px;">
+      <button id="guess-btn">Guess</button>
+      <button id="giveup-btn">Give Up</button>
+    </div>
+
+    {# Completion banner placeholder #}
+    <div id="complete-msg" style="display:none; font-size:1.5em; margin:1em 0; text-align:center;"></div>
+
+    {# Score display #}
+    <div id="score" style="font-weight:bold; margin-bottom:1em;"></div>
+
+    {# Boxes grid #}
+    <div id="boxes"
+         style="display:grid;
+                grid-template-columns:repeat(auto-fill,minmax(120px,1fr));
+                gap:8px;
+                margin-bottom:1em;">
+    </div>
+
+    <script>
+    (function(){
+      const raw   = JSON.parse(document.getElementById("quiz-data").textContent);
+      const items = raw.quiz_type === "list"
+                    ? raw.items
+                    : raw.quiz.map(q => q.correctAnswer);
+
+      const boxes    = document.getElementById("boxes");
+      const scoreEl  = document.getElementById("score");
+      const complete = document.getElementById("complete-msg");
+      const input    = document.getElementById("guess-input");
+      const guessBtn = document.getElementById("guess-btn");
+      const giveUp   = document.getElementById("giveup-btn");
+
+      let guessed = new Set(), givenUp = false;
+
+      function lev(a, b) {
+        const n = a.length, p = b.length;
+        if (!n) return p;
+        if (!p) return n;
+        const m = Array(n+1).fill().map((_, i) => [i]);
+        for (let j = 1; j <= p; j++) m[0][j] = j;
+        for (let i = 1; i <= n; i++) {
+          for (let j = 1; j <= p; j++) {
+            const cost = a[i-1] === b[j-1] ? 0 : 1;
+            m[i][j] = Math.min(
+              m[i-1][j] + 1,
+              m[i][j-1] + 1,
+              m[i-1][j-1] + cost
+            );
+          }
+        }
+        return m[n][p];
+      }
+
+      function isMatch(guess, ans) {
+        const g = guess.trim().toLowerCase();
+        const a = ans.trim().toLowerCase();
+        const d = lev(g, a);
+        const maxErrors = 2;
+        if (Math.abs(g.length - a.length) > maxErrors) return false;
+        return d <= maxErrors;
+      }
+
+      function render() {
+        boxes.innerHTML = "";
+        items.forEach(ans => {
+          const div = document.createElement("div");
+          div.className = "box";
+          if (guessed.has(ans)) {
+            div.classList.add("correct");
+            div.textContent = ans;
+          } else if (givenUp) {
+            div.classList.add("missed");
+            div.textContent = ans;
+          }
+          boxes.appendChild(div);
+        });
+        const pct = Math.round(100 * guessed.size / items.length);
+        scoreEl.textContent = `Score: ${guessed.size} / ${items.length} (${pct}%)`;
+
+        // celebration on complete
+        if (guessed.size === items.length && !givenUp) {
+          complete.textContent = "🎉 Congratulations, you finished!";
+          complete.style.display = "block";
+          confetti({ particleCount: 100, spread: 70, origin: { y: 0.4 } });
+        }
+      }
+
+      function handleGuess() {
+        const g = input.value;
+        input.value = "";
+        if (!g) return;
+        items.forEach(ans => {
+          if (!guessed.has(ans) && isMatch(g, ans)) {
+            guessed.add(ans);
+          }
+        });
+        render();
+      }
+
+      guessBtn.addEventListener("click", handleGuess);
+      giveUp.addEventListener("click", () => { givenUp = true; render(); });
+      input.addEventListener("keydown", e => {
+        if (e.key === "Enter") { e.preventDefault(); handleGuess(); }
+      });
+
+      render();
+    })();
+    </script>
+
+    <style>
+      .box {
+        border:1px solid #ccc;
+        min-height:60px;
+        display:flex;
+        align-items:center;
+        justify-content:center;
+        background:#fff;
+        padding:8px;
+        word-break:break-word;
+      }
+      .correct { background-color:#90ee90 !important; }
+      .missed  { background-color:#f08080 !important; }
+    </style>
+  {% endif %}
+{% endblock %}
+
