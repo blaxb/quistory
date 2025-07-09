@@ -1,8 +1,7 @@
-# guessai/settings.py
-
 import os
 from pathlib import Path
 from decouple import config, Csv
+from datetime import timedelta
 
 # ─── Paths ─────────────────────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -24,6 +23,7 @@ INSTALLED_APPS = [
 
     # Third-party
     "rest_framework",
+    "rest_framework_simplejwt.token_blacklist",
 
     # Your apps
     "users",    # auth & registration
@@ -72,18 +72,10 @@ DATABASES = {
 
 # ─── Password validation ────────────────────────────────────────────────────────
 AUTH_PASSWORD_VALIDATORS = [
-    {
-        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",
-    },
-    {
-        "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
-    },
-    {
-        "NAME": "django.contrib.auth.password_validation.CommonPasswordValidator",
-    },
-    {
-        "NAME": "django.contrib.auth.password_validation.NumericPasswordValidator",
-    },
+    { "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator" },
+    { "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator" },
+    { "NAME": "django.contrib.auth.password_validation.CommonPasswordValidator" },
+    { "NAME": "django.contrib.auth.password_validation.NumericPasswordValidator" },
 ]
 
 # ─── Internationalization ───────────────────────────────────────────────────────
@@ -108,5 +100,14 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": (
         "rest_framework.permissions.AllowAny",
     ),
+}
+
+# ─── Simple JWT Settings ────────────────────────────────────────────────────────
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME":  timedelta(minutes=30),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
+    "AUTH_HEADER_TYPES":      ("Bearer",),
+    "ROTATE_REFRESH_TOKENS":  True,
+    "BLACKLIST_AFTER_ROTATION": True,
 }
 

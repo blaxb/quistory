@@ -1,11 +1,11 @@
 import requests
 from django.shortcuts import render, redirect
 from django.contrib import messages
-from .forms import LoginForm, TopicForm, RegisterForm
+from .forms import LoginForm, RegisterForm, TopicForm
 
-# Base URLs for your two backends
-DJANGO_API_BASE = "http://127.0.0.1:8000"  # Django (auth & leaderboard)
-QUIZ_API_BASE   = "http://127.0.0.1:8001"  # FastAPI (quiz generation)
+# your two backends
+DJANGO_API_BASE = "http://127.0.0.1:8000"
+QUIZ_API_BASE   = "http://127.0.0.1:8001"
 
 
 def home(request):
@@ -28,8 +28,7 @@ def register_view(request):
             messages.success(request, "Account created! Please log in.")
             return redirect("login")
         else:
-            errors = resp.json()
-            for field, errs in errors.items():
+            for field, errs in resp.json().items():
                 form.add_error(field, errs)
     return render(request, "frontend/register.html", {"form": form})
 
@@ -42,33 +41,33 @@ def login_view(request):
             json=form.cleaned_data
         )
         if resp.status_code == 200:
-            token = resp.json().get("access")
-            request.session["token"] = token
+            data = resp.json()
+            # store both tokens
+            request.session["token"]         = data.get("access")
+            request.session["refresh_token"] = data.get("refresh")
             return redirect("quiz")
         messages.error(request, "Invalid credentials")
     return render(request, "frontend/login.html", {"form": form})
 
 
 def logout_view(request):
-    request.session.pop("token", None)
+    # clear everything
+    request.session.flush()
     return redirect("quiz")
 
 
 def quiz_view(request):
     form = TopicForm(request.POST or None)
     quiz = None
-
     if form.is_valid():
         gen = requests.post(
             f"{QUIZ_API_BASE}/generate-quiz",
             json={"topic": form.cleaned_data["topic"]}
         )
-        try:
-            gen.raise_for_status()
+        if gen.status_code == 200:
             quiz = gen.json()
-        except requests.HTTPError:
+        else:
             messages.error(request, f"Error generating quiz: {gen.status_code}")
-
     return render(request, "frontend/quiz.html", {
         "form": form,
         "quiz": quiz,
@@ -78,8 +77,27 @@ def quiz_view(request):
 def leaderboard_view(request):
     resp = requests.get(f"{DJANGO_API_BASE}/api/quiz/leaderboard/")
     resp.raise_for_status()
-    leaders = resp.json()
     return render(request, "frontend/leaderboard.html", {
-        "leaders": leaders,
+        "leaders": resp.json(),
+    })
+
+
+def random_quiz_view(request):
+    form  = TopicForm()
+    topic = "Pick a random quiz topic and list its items"
+    try:
+        resp = requests.post(
+            f"{QUIZ_API_BASE}/generate-quiz",
+            json={"topic": topic}
+        )
+        resp.raise_for_status()
+        quiz = resp.json()
+    except requests.HTTPError as e:
+        messages.error(request, f"Couldn’t load random quiz ({e.response.status_code})")
+        return redirect("quiz")
+    return render(request, "frontend/quiz.html", {
+        "form":  form,
+        "quiz":  quiz,
+        "topic": topic,
     })
 

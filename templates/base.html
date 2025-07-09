@@ -1,28 +1,154 @@
+{% load static %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Guess.ai</title>
+  <title>Quistory</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
-    body { font-family: sans-serif; max-width: 800px; margin: auto; padding: 1rem; }
-    nav a { margin-right: 1rem; }
+    :root {
+      --grad-start:   #1565C0;
+      --grad-end:     #1E88E5;
+      --bg-light:     #f9fbfc;
+      --text-dark:    #212121;
+      --pill-hover:   rgba(255,255,255,0.2);
+      --box-hover:    #E3F2FD;
+    }
+
+    /* Reset & typography */
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body {
+      font-family: 'Inter', sans-serif;
+      color: var(--text-dark);
+      background: var(--bg-light);
+      line-height:1.6;
+    }
+    a { text-decoration:none; color:inherit; }
+
+    /* ─── HEADER / NAV ───────────────────────────────────────── */
+    header {
+      background: linear-gradient(90deg, var(--grad-start), var(--grad-end));
+      box-shadow: 0 3px 6px rgba(0,0,0,0.1);
+    }
+    .nav-container {
+      max-width:900px;
+      margin:0 auto;
+      padding:0.4rem 1rem;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      height:56px;
+    }
+    .logo {
+      height:55px;
+      width:auto;
+      transition:transform 0.2s;
+    }
+    .logo:hover {
+      transform:scale(1.05);
+    }
+    .nav-links {
+      display:flex;
+      gap:1rem;
+      list-style:none;
+    }
+    .nav-links li a {
+      padding:0.4rem 0.8rem;
+      border-radius:999px;
+      font-weight:500;
+      color:#fff;
+      transition:background 0.2s;
+    }
+    .nav-links li a:hover {
+      background:var(--pill-hover);
+    }
+
+    /* ─── MAIN & CONTAINER ───────────────────────────────────── */
+    .container {
+      max-width:900px;
+      margin:2rem auto;
+      padding:0 1rem;
+    }
+
+    /* ─── FORMS & BUTTONS ─────────────────────────────────────── */
+    input[type="text"],
+    input[type="password"],
+    input[type="email"],
+    textarea,
+    select {
+      width:100%;
+      padding:0.6rem;
+      margin-bottom:1rem;
+      border:1px solid #ccc;
+      border-radius:6px;
+      font-size:1rem;
+    }
+    button,
+    input[type="submit"] {
+      background: linear-gradient(90deg, var(--grad-start), var(--grad-end));
+      color:#fff;
+      border:none;
+      padding:0.6rem 1.2rem;
+      font-size:1rem;
+      font-weight:500;
+      border-radius:6px;
+      cursor:pointer;
+      box-shadow:0 2px 4px rgba(0,0,0,0.2);
+      transition:transform 0.1s, box-shadow 0.2s, opacity 0.2s;
+      display:inline-block;
+    }
+    button:hover,
+    input[type="submit"]:hover {
+      opacity:1;
+      transform:translateY(-2px);
+      box-shadow:0 4px 8px rgba(0,0,0,0.3);
+    }
+    .controls {
+      margin:2rem 0 1rem;
+    }
+    .controls .btn + .btn {
+      margin-left:0.5rem;
+    }
+
+    /* ─── ANSWER BOXES ────────────────────────────────────────── */
+    .box {
+      transition: transform 0.1s, background-color 0.2s;
+    }
+    .box:hover {
+      transform: translateY(-2px);
+      background-color: var(--box-hover);
+    }
   </style>
 </head>
+
 <body>
   <header>
-    <nav>
-      <a href="{% url 'quiz' %}">Quiz</a>
-      <a href="{% url 'leaderboard' %}">Leaderboard</a>
-      {% if request.session.token %}
-        <a href="{% url 'logout' %}">Log out</a>
-      {% else %}
-        <a href="{% url 'login' %}">Log in</a>
-        <a href="{% url 'register' %}">Register</a>
-      {% endif %}
-    </nav>
+    <div class="nav-container">
+      <a href="{% url 'home' %}">
+        <img src="{% static 'frontend/images/qulogo.png' %}"
+             alt="Quistory logo"
+             class="logo">
+      </a>
+      <ul class="nav-links">
+        {% if request.session.token %}
+          <li><a href="{% url 'quiz' %}">Quiz</a></li>
+          <li><a href="{% url 'leaderboard' %}">Leaderboard</a></li>
+          <li><a href="{% url 'logout' %}">Log out</a></li>
+        {% else %}
+          <li><a href="{% url 'login' %}">Log in</a></li>
+          <li><a href="{% url 'register' %}">Create account</a></li>
+        {% endif %}
+      </ul>
+    </div>
   </header>
 
-  <main>
+  <!-- make both JWTs available to our frontend script -->
+  <script>
+    window.API_TOKEN         = "{{ request.session.token|default:'' }}";
+    window.API_REFRESH_TOKEN = "{{ request.session.refresh_token|default:'' }}";
+  </script>
+
+  <main class="container">
     {% block content %}{% endblock %}
   </main>
 </body>

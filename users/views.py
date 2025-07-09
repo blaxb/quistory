@@ -1,16 +1,18 @@
-from rest_framework import generics, status
-from rest_framework.response import Response
+from django.contrib.auth import get_user_model
+from rest_framework.generics import CreateAPIView
+from rest_framework.permissions import AllowAny
+
 from .serializers import RegisterSerializer
 
-class RegisterView(generics.CreateAPIView):
-    serializer_class = RegisterSerializer
+User = get_user_model()
 
-    def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        user = serializer.save()
-        return Response(
-            {"username": user.username, "email": user.email},
-            status=status.HTTP_201_CREATED,
-        )
+class RegisterView(CreateAPIView):
+    """
+    POST /api/auth/register/ with JSON
+      { "username","email","password","password2" }
+    will create a new user with a properly hashed password.
+    """
+    queryset = User.objects.all()
+    permission_classes = [AllowAny]
+    serializer_class   = RegisterSerializer
 
