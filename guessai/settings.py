@@ -43,7 +43,7 @@ MIDDLEWARE = [
 
 # ─── URL Configuration ──────────────────────────────────────────────────────────
 # You have `./urls.py` at the repo root, so point here:
-ROOT_URLCONF = "urls"
+ROOT_URLCONF = "guessai.urls"
 
 # ─── Templates ─────────────────────────────────────────────────────────────────
 TEMPLATES = [
