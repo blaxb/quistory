@@ -1,16 +1,17 @@
-# urls.py  ← this lives next to manage.py, not in guessai/
+# urls.py  ← same directory as manage.py
+
 from django.contrib import admin
 from django.urls import path, include
 
 urlpatterns = [
-    # 1. Hook the homepage into your frontend app
+    # 1) Serve your frontend app at /
     path("", include("frontend.urls")),
 
-    # 2. Your API routes
+    # 2) Your API endpoints
     path("api/auth/", include("users.urls")),
     path("api/quiz/", include("quizzes.urls")),
 
-    # 3. Django admin
+    # 3) Admin panel
     path("admin/", admin.site.urls),
 ]
 
