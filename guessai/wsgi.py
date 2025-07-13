@@ -1,8 +1,8 @@
 import os
 from django.core.wsgi import get_wsgi_application
 
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "settings")
-# or "production" if you use production.py
+# ← point to guessai.settings, not "settings"!
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "guessai.settings")
 
 application = get_wsgi_application()
 
