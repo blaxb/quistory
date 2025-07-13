@@ -1,13 +1,13 @@
-# urls.py  ← same directory as manage.py
+# urls.py (next to manage.py)
 
 from django.contrib import admin
 from django.urls import path, include
 
 urlpatterns = [
-    # 1) Serve your frontend app at /
+    # 1) Serve your React/Django‐template frontend at /
     path("", include("frontend.urls")),
 
-    # 2) Your API endpoints
+    # 2) API endpoints
     path("api/auth/", include("users.urls")),
     path("api/quiz/", include("quizzes.urls")),
 

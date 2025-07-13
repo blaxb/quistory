@@ -1,30 +1,29 @@
-# Dockerfile for the Django app
-
-# 1) Base image
+# Use an official Python runtime as a parent image
 FROM python:3.11-slim
 
-# 2) Set up system deps
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends \
-       build-essential \
-       curl \
-  && rm -rf /var/lib/apt/lists/*
+# Don’t generate .pyc files
+ENV PYTHONDONTWRITEBYTECODE=1
+# Send stdout/stderr straight to terminal (no buffering)
+ENV PYTHONUNBUFFERED=1
 
-# 3) Set working dir
+# Set working directory
 WORKDIR /app
 
-# 4) Install Python deps
+# Install gcc & libpq-dev so psycopg2 can compile, then clean up
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends gcc libpq-dev \
+ && pip install --upgrade pip \
+ && pip install --no-cache-dir -r requirements.txt \
+ && apt-get purge -y --auto-remove gcc libpq-dev \
+ && rm -rf /var/lib/apt/lists/*
 
-# 5) Copy project files
+# Copy the rest of your code
 COPY . .
 
-# 6) Collect static files
-ENV DJANGO_SETTINGS_MODULE=guessai.settings
-RUN python manage.py collectstatic --noinput
-
-# 7) Expose port and run
+# Expose the port your Django app will run on
 EXPOSE 8000
-CMD ["gunicorn", "guessai.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3"]
+
+# Run Gunicorn
+CMD ["gunicorn", "guessai.wsgi:application", "--bind", "0.0.0.0:8000"]
 
