@@ -41,7 +41,9 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
-ROOT_URLCONF = "guessai.urls"
+# ─── URL Configuration ──────────────────────────────────────────────────────────
+# You have `./urls.py` at the repo root, so point here:
+ROOT_URLCONF = "urls"
 
 # ─── Templates ─────────────────────────────────────────────────────────────────
 TEMPLATES = [
@@ -59,10 +61,11 @@ TEMPLATES = [
     },
 ]
 
+# ─── WSGI Entrypoint ────────────────────────────────────────────────────────────
 WSGI_APPLICATION = "guessai.wsgi.application"
 
 # ─── Database ──────────────────────────────────────────────────────────────────
-# Pulls from your DATABASE_URL in .env (fallback to local sqlite if unset)
+# Pulls from DATABASE_URL in .env, falls back to local SQLite
 DATABASES = {
     "default": dj_database_url.config(
         default=config(
@@ -70,7 +73,7 @@ DATABASES = {
             default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}"
         ),
         conn_max_age=600,
-        ssl_require=True,   # Always require SSL for Render Postgres
+        ssl_require=True,
     )
 }
 
@@ -82,7 +85,7 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
 
-# ─── Internationalization ────────────────────────────────────────────────────────
+# ─── Internationalization ───────────────────────────────────────────────────────
 LANGUAGE_CODE = "en-us"
 TIME_ZONE     = "UTC"
 USE_I18N      = True
@@ -108,10 +111,10 @@ REST_FRAMEWORK = {
 
 # ─── Simple JWT Settings ────────────────────────────────────────────────────────
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME":      timedelta(minutes=30),
-    "REFRESH_TOKEN_LIFETIME":     timedelta(days=7),
-    "AUTH_HEADER_TYPES":          ("Bearer",),
-    "ROTATE_REFRESH_TOKENS":      True,
-    "BLACKLIST_AFTER_ROTATION":   True,
+    "ACCESS_TOKEN_LIFETIME":    timedelta(minutes=30),
+    "REFRESH_TOKEN_LIFETIME":   timedelta(days=7),
+    "AUTH_HEADER_TYPES":        ("Bearer",),
+    "ROTATE_REFRESH_TOKENS":    True,
+    "BLACKLIST_AFTER_ROTATION": True,
 }
 
