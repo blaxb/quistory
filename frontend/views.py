@@ -1,4 +1,4 @@
-kimport os
+import os
 import requests
 from django.shortcuts import render, redirect
 from django.contrib import messages
