@@ -1,11 +1,9 @@
+# quizzes/urls.py
 from django.urls import path
-from .views import QuizAttemptCreateView, LeaderboardView
+from .views import generate_quiz
 
 urlpatterns = [
-    # create a quiz attempt
-    path("attempts/",    QuizAttemptCreateView.as_view(), name="quiz-attempts"),
-
-    # list the leaderboard
-    path("leaderboard/", LeaderboardView.as_view(),       name="quiz-leaderboard"),
+    path("generate-quiz/", generate_quiz, name="generate_quiz"),
+    # … other quiz endpoints
 ]
 
