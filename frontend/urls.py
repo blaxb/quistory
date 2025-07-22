@@ -1,12 +1,14 @@
+# frontend/urls.py
 from django.urls import path
-from .views import home, login_view, logout_view, register_view, quiz_view, leaderboard_view
+from . import views
 
 urlpatterns = [
-    path("", home, name="home"),
-    path("login/", login_view, name="login"),
-    path("register/", register_view, name="register"),
-    path("logout/", logout_view, name="logout"),
-    path("quiz/",  quiz_view, name="quiz"),
-    path("leaderboard/", leaderboard_view, name="leaderboard"),
+    path("", views.home, name="home"),
+    path("quiz/", views.quiz_view, name="quiz"),
+    path("quiz/random/", views.random_quiz_view, name="random_quiz"),
+    path("leaderboard/", views.leaderboard_view, name="leaderboard"),
+    path("register/", views.register_view, name="register"),
+    path("login/",    views.login_view,    name="login"),
+    path("logout/",   views.logout_view,   name="logout"),
 ]
 
