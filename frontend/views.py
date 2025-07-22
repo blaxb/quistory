@@ -7,7 +7,7 @@ from .forms import LoginForm, RegisterForm, TopicForm
 
 # Backends (override via env vars in production)
 DJANGO_API_BASE = os.environ.get("DJANGO_API_BASE", "http://127.0.0.1:8000")
-QUIZ_API_BASE   = os.environ.get("QUIZ_API_BASE", "http://127.0.0.1:8001")
+QUIZ_API_BASE   = os.environ.get("QUIZ_API_BASE", f"{DJANGO_API_BASE}/api/quiz")
 
 
 def home(request):
@@ -74,7 +74,7 @@ def quiz_view(request):
     if form.is_valid():
         try:
             gen = requests.post(
-                f"{QUIZ_API_BASE}/generate-quiz",
+                f"{QUIZ_API_BASE}/generate-quiz/",
                 json={"topic": form.cleaned_data["topic"]},
                 timeout=5,
             )
@@ -93,7 +93,7 @@ def quiz_view(request):
 def leaderboard_view(request):
     try:
         resp = requests.get(
-            f"{DJANGO_API_BASE}/api/quiz/leaderboard/",
+            f"{QUIZ_API_BASE}/leaderboard/",
             timeout=5,
         )
         resp.raise_for_status()
@@ -115,7 +115,7 @@ def random_quiz_view(request):
 
     try:
         resp = requests.post(
-            f"{QUIZ_API_BASE}/generate-quiz",
+            f"{QUIZ_API_BASE}/generate-quiz/",
             json={"topic": topic},
             timeout=5,
         )
