@@ -1,31 +1,18 @@
 # quiz_logic.py
+import asyncio
+from fallback_gpt import generate_quiz_with_gpt
 
-import random
-from typing import List, Dict
-from pydantic import BaseModel
-
-class QuizQuestion(BaseModel):
-    question: str
-    correctAnswer: str
-    wrongAnswers: List[str]
-
-def build_quiz_from_facts(facts: List[Dict]) -> List[QuizQuestion]:
+def generate_quiz(topic: str) -> dict:
     """
-    Given a list of dicts like:
-      {
-        "question": "...",
-        "correctAnswer": "...",
-        "wrongAnswers": ["...", "...", "..."]
-      }
-    returns a shuffled list of QuizQuestion models.
+    Synchronous wrapper around our async GPT list generator.
+    Returns a dict that DRF can serialize directly.
     """
-    quiz: List[QuizQuestion] = []
-    for fact in facts:
-        quiz.append(QuizQuestion(
-            question=fact["question"],
-            correctAnswer=fact["correctAnswer"],
-            wrongAnswers=fact["wrongAnswers"]
-        ))
-    random.shuffle(quiz)
-    return quiz
+    # run the async function to get a List[str]
+    items = asyncio.run(generate_quiz_with_gpt(topic))
+
+    # pack into whatever shape you want; for example:
+    return {
+        "topic": topic,
+        "items": items,
+    }
 
