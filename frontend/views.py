@@ -7,9 +7,9 @@ from django.contrib import messages
 from requests.exceptions import RequestException
 from .forms import LoginForm, RegisterForm, TopicForm
 
-# Use the same host/port as your Django API
+# point both APIs at the same Django host
 DJANGO_API_BASE = os.environ.get("DJANGO_API_BASE", "http://127.0.0.1:8000")
-QUIZ_API_BASE   = os.environ.get("QUIZ_API_BASE", f"{DJANGO_API_BASE}/api/quiz")
+QUIZ_API_BASE   = f"{DJANGO_API_BASE}/api/quiz"
 
 
 def home(request):
@@ -39,7 +39,6 @@ def register_view(request):
                 return redirect("login")
             for field, errs in resp.json().items():
                 form.add_error(field, errs)
-
     return render(request, "frontend/register.html", {"form": form})
 
 
@@ -60,7 +59,6 @@ def login_view(request):
             request.session["token"]         = data.get("access")
             request.session["refresh_token"] = data.get("refresh")
             return redirect("quiz")
-
     return render(request, "frontend/login.html", {"form": form})
 
 
@@ -78,7 +76,7 @@ def quiz_view(request):
             gen = requests.post(
                 f"{QUIZ_API_BASE}/generate-quiz/",
                 json={"topic": form.cleaned_data["topic"]},
-                timeout=5,
+                timeout=10,
             )
             gen.raise_for_status()
         except RequestException as e:
@@ -95,7 +93,7 @@ def quiz_view(request):
 def leaderboard_view(request):
     try:
         resp = requests.get(
-            f"{DJANGO_API_BASE}/api/quiz/leaderboard/",
+            f"{QUIZ_API_BASE}/leaderboard/",
             timeout=5,
         )
         resp.raise_for_status()
@@ -119,7 +117,7 @@ def random_quiz_view(request):
         resp = requests.post(
             f"{QUIZ_API_BASE}/generate-quiz/",
             json={"topic": topic},
-            timeout=5,
+            timeout=10,
         )
         resp.raise_for_status()
     except RequestException as e:
