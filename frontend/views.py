@@ -71,7 +71,7 @@ def quiz_view(request):
     form = TopicForm(request.POST or None)
     quiz = None
 
-    if form.is_valid():
+    if request.method == "POST" and form.is_valid():
         try:
             gen = requests.post(
                 f"{QUIZ_API_BASE}/generate-quiz/",
@@ -79,10 +79,9 @@ def quiz_view(request):
                 timeout=10,
             )
             gen.raise_for_status()
+            quiz = gen.json()
         except RequestException as e:
             messages.error(request, f"Couldn’t generate quiz: {e}")
-        else:
-            quiz = gen.json()
 
     return render(request, "frontend/quiz.html", {
         "form": form,
@@ -97,11 +96,10 @@ def leaderboard_view(request):
             timeout=5,
         )
         resp.raise_for_status()
+        leaders = resp.json()
     except RequestException as e:
         messages.error(request, f"Couldn’t load leaderboard: {e}")
         leaders = []
-    else:
-        leaders = resp.json()
 
     return render(request, "frontend/leaderboard.html", {
         "leaders": leaders,
@@ -109,9 +107,9 @@ def leaderboard_view(request):
 
 
 def random_quiz_view(request):
-    form  = TopicForm()
+    form = TopicForm()
     topic = "Pick a random quiz topic and list its items"
-    quiz  = None
+    quiz = None
 
     try:
         resp = requests.post(
@@ -120,10 +118,9 @@ def random_quiz_view(request):
             timeout=10,
         )
         resp.raise_for_status()
+        quiz = resp.json()
     except RequestException as e:
         messages.error(request, f"Couldn’t load random quiz: {e}")
-    else:
-        quiz = resp.json()
 
     return render(request, "frontend/quiz.html", {
         "form":  form,
