@@ -3,12 +3,9 @@
 import requests
 from django.shortcuts import render, redirect
 from django.contrib import messages
+from django.urls import reverse
 from requests.exceptions import RequestException
 from .forms import LoginForm, RegisterForm, TopicForm
-
-# always point at the same host as the frontend
-AUTH_API_BASE = "/api/auth"
-QUIZ_API_BASE = "/api/quiz"
 
 
 def home(request):
@@ -17,10 +14,13 @@ def home(request):
 
 def register_view(request):
     form = RegisterForm(request.POST or None)
-    if form.is_valid():
+    if request.method == "POST" and form.is_valid():
+        # build absolute URL to our own /api/auth/register/
+        base = request.build_absolute_uri("/")[:-1]  # e.g. https://quistory.onrender.com
+        url = f"{base}{reverse('users:register')}"  # assumes users.urls name="register"
         try:
             resp = requests.post(
-                f"{AUTH_API_BASE}/register/",
+                url,
                 json={
                     "username":  form.cleaned_data["username"],
                     "email":     form.cleaned_data["email"],
@@ -31,7 +31,7 @@ def register_view(request):
             )
             resp.raise_for_status()
         except RequestException as e:
-            messages.error(request, f"Registration service error: {e}")
+            messages.error(request, f"Registration error: {e}")
         else:
             if resp.status_code == 201:
                 messages.success(request, "Account created! Please log in.")
@@ -43,16 +43,18 @@ def register_view(request):
 
 def login_view(request):
     form = LoginForm(request.POST or None)
-    if form.is_valid():
+    if request.method == "POST" and form.is_valid():
+        base = request.build_absolute_uri("/")[:-1]
+        url = f"{base}{reverse('users:login')}"
         try:
             resp = requests.post(
-                f"{AUTH_API_BASE}/login/",
+                url,
                 json=form.cleaned_data,
                 timeout=5,
             )
             resp.raise_for_status()
-        except RequestException:
-            messages.error(request, "Invalid credentials or auth service down.")
+        except RequestException as e:
+            messages.error(request, f"Login error: {e}")
         else:
             data = resp.json()
             request.session["token"]         = data.get("access")
@@ -71,14 +73,16 @@ def quiz_view(request):
     quiz = None
 
     if request.method == "POST" and form.is_valid():
+        base = request.build_absolute_uri("/")[:-1]
+        url = f"{base}/api/quiz/generate-quiz/"
         try:
-            gen = requests.post(
-                f"{QUIZ_API_BASE}/generate-quiz/",
+            resp = requests.post(
+                url,
                 json={"topic": form.cleaned_data["topic"]},
                 timeout=10,
             )
-            gen.raise_for_status()
-            quiz = gen.json()
+            resp.raise_for_status()
+            quiz = resp.json()
         except RequestException as e:
             messages.error(request, f"Couldn’t generate quiz: {e}")
 
@@ -89,16 +93,15 @@ def quiz_view(request):
 
 
 def leaderboard_view(request):
+    leaders = []
+    base = request.build_absolute_uri("/")[:-1]
+    url = f"{base}/api/quiz/leaderboard/"
     try:
-        resp = requests.get(
-            f"{QUIZ_API_BASE}/leaderboard/",
-            timeout=5,
-        )
+        resp = requests.get(url, timeout=5)
         resp.raise_for_status()
         leaders = resp.json()
     except RequestException as e:
         messages.error(request, f"Couldn’t load leaderboard: {e}")
-        leaders = []
 
     return render(request, "frontend/leaderboard.html", {
         "leaders": leaders,
@@ -110,9 +113,11 @@ def random_quiz_view(request):
     topic = "Pick a random quiz topic and list its items"
     quiz  = None
 
+    base = request.build_absolute_uri("/")[:-1]
+    url = f"{base}/api/quiz/generate-quiz/"
     try:
         resp = requests.post(
-            f"{QUIZ_API_BASE}/generate-quiz/",
+            url,
             json={"topic": topic},
             timeout=10,
         )
