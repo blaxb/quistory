@@ -1,15 +1,14 @@
 # frontend/views.py
 
-import os
 import requests
 from django.shortcuts import render, redirect
 from django.contrib import messages
 from requests.exceptions import RequestException
 from .forms import LoginForm, RegisterForm, TopicForm
 
-# point both APIs at the same Django host
-DJANGO_API_BASE = os.environ.get("DJANGO_API_BASE", "http://127.0.0.1:8000")
-QUIZ_API_BASE   = f"{DJANGO_API_BASE}/api/quiz"
+# always point at the same host as the frontend
+AUTH_API_BASE = "/api/auth"
+QUIZ_API_BASE = "/api/quiz"
 
 
 def home(request):
@@ -21,7 +20,7 @@ def register_view(request):
     if form.is_valid():
         try:
             resp = requests.post(
-                f"{DJANGO_API_BASE}/api/auth/register/",
+                f"{AUTH_API_BASE}/register/",
                 json={
                     "username":  form.cleaned_data["username"],
                     "email":     form.cleaned_data["email"],
@@ -47,7 +46,7 @@ def login_view(request):
     if form.is_valid():
         try:
             resp = requests.post(
-                f"{DJANGO_API_BASE}/api/auth/login/",
+                f"{AUTH_API_BASE}/login/",
                 json=form.cleaned_data,
                 timeout=5,
             )
@@ -107,9 +106,9 @@ def leaderboard_view(request):
 
 
 def random_quiz_view(request):
-    form = TopicForm()
+    form  = TopicForm()
     topic = "Pick a random quiz topic and list its items"
-    quiz = None
+    quiz  = None
 
     try:
         resp = requests.post(
