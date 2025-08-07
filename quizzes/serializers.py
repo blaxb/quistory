@@ -16,9 +16,10 @@ class QuizAttemptSerializer(serializers.ModelSerializer):
         read_only_fields = ['id']
 
     def create(self, validated_data):
-        # Automatically associate the currently-logged-in user
+        # associate with logged-in user
         validated_data['user'] = self.context['request'].user
         return super().create(validated_data)
+
 
 class UserLeaderboardSerializer(serializers.ModelSerializer):
     quizzes_played = serializers.IntegerField()
