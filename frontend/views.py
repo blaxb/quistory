@@ -1,11 +1,13 @@
 # frontend/views.py
-
 import requests
 from django.shortcuts import render, redirect
 from django.contrib import messages
-from django.urls import reverse
-from requests.exceptions import RequestException
 from .forms import LoginForm, RegisterForm, TopicForm
+
+
+def _api_base(request):
+    # e.g. "https://quistory.onrender.com"
+    return request.build_absolute_uri("/").rstrip("/")
 
 
 def home(request):
@@ -15,9 +17,7 @@ def home(request):
 def register_view(request):
     form = RegisterForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
-        # build absolute URL to our own /api/auth/register/
-        base = request.build_absolute_uri("/")[:-1]  # e.g. https://quistory.onrender.com
-        url = f"{base}{reverse('users:register')}"  # assumes users.urls name="register"
+        url = f"{_api_base(request)}/api/auth/register/"
         try:
             resp = requests.post(
                 url,
@@ -30,7 +30,7 @@ def register_view(request):
                 timeout=5,
             )
             resp.raise_for_status()
-        except RequestException as e:
+        except Exception as e:
             messages.error(request, f"Registration error: {e}")
         else:
             if resp.status_code == 201:
@@ -44,16 +44,11 @@ def register_view(request):
 def login_view(request):
     form = LoginForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
-        base = request.build_absolute_uri("/")[:-1]
-        url = f"{base}{reverse('users:login')}"
+        url = f"{_api_base(request)}/api/auth/login/"
         try:
-            resp = requests.post(
-                url,
-                json=form.cleaned_data,
-                timeout=5,
-            )
+            resp = requests.post(url, json=form.cleaned_data, timeout=5)
             resp.raise_for_status()
-        except RequestException as e:
+        except Exception as e:
             messages.error(request, f"Login error: {e}")
         else:
             data = resp.json()
@@ -73,8 +68,7 @@ def quiz_view(request):
     quiz = None
 
     if request.method == "POST" and form.is_valid():
-        base = request.build_absolute_uri("/")[:-1]
-        url = f"{base}/api/quiz/generate-quiz/"
+        url = f"{_api_base(request)}/api/quiz/generate-quiz/"
         try:
             resp = requests.post(
                 url,
@@ -83,7 +77,7 @@ def quiz_view(request):
             )
             resp.raise_for_status()
             quiz = resp.json()
-        except RequestException as e:
+        except Exception as e:
             messages.error(request, f"Couldn’t generate quiz: {e}")
 
     return render(request, "frontend/quiz.html", {
@@ -93,14 +87,13 @@ def quiz_view(request):
 
 
 def leaderboard_view(request):
+    url = f"{_api_base(request)}/api/quiz/leaderboard/"
     leaders = []
-    base = request.build_absolute_uri("/")[:-1]
-    url = f"{base}/api/quiz/leaderboard/"
     try:
         resp = requests.get(url, timeout=5)
         resp.raise_for_status()
         leaders = resp.json()
-    except RequestException as e:
+    except Exception as e:
         messages.error(request, f"Couldn’t load leaderboard: {e}")
 
     return render(request, "frontend/leaderboard.html", {
@@ -113,8 +106,7 @@ def random_quiz_view(request):
     topic = "Pick a random quiz topic and list its items"
     quiz  = None
 
-    base = request.build_absolute_uri("/")[:-1]
-    url = f"{base}/api/quiz/generate-quiz/"
+    url = f"{_api_base(request)}/api/quiz/generate-quiz/"
     try:
         resp = requests.post(
             url,
@@ -123,7 +115,7 @@ def random_quiz_view(request):
         )
         resp.raise_for_status()
         quiz = resp.json()
-    except RequestException as e:
+    except Exception as e:
         messages.error(request, f"Couldn’t load random quiz: {e}")
 
     return render(request, "frontend/quiz.html", {

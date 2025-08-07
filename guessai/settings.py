@@ -1,3 +1,5 @@
+# guessai/settings.py
+
 import os
 from pathlib import Path
 from decouple import config, Csv
@@ -14,6 +16,9 @@ ALLOWED_HOSTS = config("ALLOWED_HOSTS", default="*", cast=Csv())
 
 # ─── Installed Apps ─────────────────────────────────────────────────────────────
 INSTALLED_APPS = [
+    # WhiteNoise for static-file serving (must come before staticfiles)
+    "whitenoise.runserver_nostatic",
+
     # Django core
     "django.contrib.admin",
     "django.contrib.auth",
@@ -21,9 +26,11 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+
     # Third-party
     "rest_framework",
     "rest_framework_simplejwt.token_blacklist",
+
     # Your apps
     "users",
     "quizzes",
@@ -33,6 +40,9 @@ INSTALLED_APPS = [
 # ─── Middleware ─────────────────────────────────────────────────────────────────
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    # WhiteNoiseMiddleware serves your collected static files
+    "whitenoise.middleware.WhiteNoiseMiddleware",
+
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -42,7 +52,6 @@ MIDDLEWARE = [
 ]
 
 # ─── URL Configuration ──────────────────────────────────────────────────────────
-# You have `./urls.py` at the repo root, so point here:
 ROOT_URLCONF = "guessai.urls"
 
 # ─── Templates ─────────────────────────────────────────────────────────────────
@@ -65,7 +74,6 @@ TEMPLATES = [
 WSGI_APPLICATION = "guessai.wsgi.application"
 
 # ─── Database ──────────────────────────────────────────────────────────────────
-# Pulls from DATABASE_URL in .env, falls back to local SQLite
 DATABASES = {
     "default": dj_database_url.config(
         default=config(
@@ -93,8 +101,10 @@ USE_L10N      = True
 USE_TZ        = True
 
 # ─── Static files ───────────────────────────────────────────────────────────────
-STATIC_URL  = "/static/"
+STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+STATICFILES_DIRS = [BASE_DIR / "frontend" / "static"]
+STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
 # ─── Default primary key field type ─────────────────────────────────────────────
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
