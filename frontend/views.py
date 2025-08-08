@@ -1,14 +1,20 @@
+# frontend/views.py
+
 import os
 import requests
 from django.shortcuts import render, redirect
 from django.contrib import messages
 from requests.exceptions import RequestException
+
 from .forms import LoginForm, RegisterForm, TopicForm
 
+# For auth endpoints only (can still use your API if you want)
+DJANGO_API_BASE = os.environ.get("DJANGO_API_BASE", "http://127.0.0.1:8000")
 
-def _api_base(request):
-    # Use env if provided, otherwise use current host (https on Render)
-    return os.environ.get("DJANGO_API_BASE") or request.build_absolute_uri("/").rstrip("/")
+# --- NEW: use the quiz logic directly (no HTTP call to ourselves) ---
+from quiz_logic import generate_quiz as logic_generate_quiz
+from django.db.models import Count, Sum
+from django.contrib.auth.models import User
 
 
 def home(request):
@@ -16,18 +22,22 @@ def home(request):
 
 
 def register_view(request):
+    """
+    Keeps using your REST auth endpoint.
+    If you see timeouts here too, set WEB_CONCURRENCY=2 on Render.
+    """
     form = RegisterForm(request.POST or None)
     if form.is_valid():
         try:
             resp = requests.post(
-                f"{_api_base(request)}/api/auth/register/",
+                f"{DJANGO_API_BASE}/api/auth/register/",
                 json={
                     "username":  form.cleaned_data["username"],
                     "email":     form.cleaned_data["email"],
                     "password":  form.cleaned_data["password"],
                     "password2": form.cleaned_data["password2"],
                 },
-                timeout=10,
+                timeout=15,
             )
             resp.raise_for_status()
         except RequestException as e:
@@ -36,22 +46,23 @@ def register_view(request):
             if resp.status_code == 201:
                 messages.success(request, "Account created! Please log in.")
                 return redirect("login")
-            try:
-                for field, errs in resp.json().items():
-                    form.add_error(field, errs)
-            except Exception:
-                messages.error(request, "Unexpected response from auth service.")
+            for field, errs in resp.json().items():
+                form.add_error(field, errs)
     return render(request, "frontend/register.html", {"form": form})
 
 
 def login_view(request):
+    """
+    Keeps using your REST auth endpoint.
+    If you see timeouts here too, set WEB_CONCURRENCY=2 on Render.
+    """
     form = LoginForm(request.POST or None)
     if form.is_valid():
         try:
             resp = requests.post(
-                f"{_api_base(request)}/api/auth/login/",
+                f"{DJANGO_API_BASE}/api/auth/login/",
                 json=form.cleaned_data,
-                timeout=10,
+                timeout=15,
             )
             resp.raise_for_status()
         except RequestException:
@@ -70,55 +81,63 @@ def logout_view(request):
 
 
 def quiz_view(request):
+    """
+    NO HTTP round-trip. Generate using local Python, then render the page.
+    """
     form = TopicForm(request.POST or None)
     quiz = None
-    topic = None
 
-    if request.method == "POST" and form.is_valid():
+    if form.is_valid():
         topic = form.cleaned_data["topic"]
         try:
-            gen = requests.post(
-                f"{_api_base(request)}/api/quiz/generate-quiz/",
-                json={"topic": topic},
-                timeout=30,
-            )
-            gen.raise_for_status()
-            quiz = gen.json()  # expected: {"topic": "...", "items": [...]}
-        except RequestException as e:
-            # Keep page usable; surface a minimal error via a dummy payload
-            quiz = {"error": f"Couldn’t generate quiz: {e}"}
+            quiz = logic_generate_quiz(topic)  # returns {"topic": ..., "items": [...]}
+        except Exception as e:
+            messages.error(request, f"Couldn’t generate quiz: {e}")
+            quiz = None
 
-    return render(
-        request,
-        "frontend/quiz.html",
-        {"form": form, "quiz": quiz, "topic": topic},
-    )
+    return render(request, "frontend/quiz.html", {
+        "form": form,
+        "quiz": quiz,
+    })
 
 
 def leaderboard_view(request):
-    leaders = []
-    try:
-        resp = requests.get(f"{_api_base(request)}/api/quiz/leaderboard/", timeout=10)
-        resp.raise_for_status()
-        leaders = resp.json()
-    except RequestException as e:
-        messages.error(request, f"Couldn’t load leaderboard: {e}")
+    """
+    NO HTTP round-trip. Query directly via ORM and pass a simple list of dicts.
+    """
+    leaders_qs = (
+        User.objects
+        .annotate(
+            quizzes_played=Count('quizattempt'),
+            total_points=Sum('quizattempt__points'),
+        )
+        .order_by('-total_points')
+    )
+    leaders = [
+        {
+            "username": u.username,
+            "quizzes_played": u.quizzes_played or 0,
+            "total_points": u.total_points or 0,
+        }
+        for u in leaders_qs
+    ]
     return render(request, "frontend/leaderboard.html", {"leaders": leaders})
-    
+
 
 def random_quiz_view(request):
-    form = TopicForm()
+    """
+    NO HTTP round-trip. Generate locally with a canned prompt.
+    """
+    form  = TopicForm()
     topic = "Pick a random quiz topic and list its items"
-    quiz = None
+    quiz  = None
     try:
-        resp = requests.post(
-            f"{_api_base(request)}/api/quiz/generate-quiz/",
-            json={"topic": topic},
-            timeout=30,
-        )
-        resp.raise_for_status()
-        quiz = resp.json()
-    except RequestException as e:
-        quiz = {"error": f"Couldn’t load random quiz: {e}"}
-    return render(request, "frontend/quiz.html", {"form": form, "quiz": quiz, "topic": topic})
+        quiz = logic_generate_quiz(topic)
+    except Exception as e:
+        messages.error(request, f"Couldn’t load random quiz: {e}")
+
+    return render(request, "frontend/quiz.html", {
+        "form":  form,
+        "quiz":  quiz,
+    })
 
