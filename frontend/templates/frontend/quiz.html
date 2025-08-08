@@ -15,12 +15,13 @@
   <hr>
   <h3>{{ quiz.topic|default:""|title }} Quiz</h3>
 
-  <!-- expose quiz data to JS -->
+  {# Expose quiz data safely to JS #}
   {{ quiz|json_script:"quiz-data" }}
 
   <div id="quiz-ui" style="margin-top: 10px;">
     <div style="margin: .5rem 0;">
-      <strong>Found:</strong> <span id="found-count">0</span> / <span id="total-count">0</span>
+      <strong>Found:</strong> <span id="found-count">0</span> /
+      <span id="total-count">0</span>
       &nbsp;|&nbsp; <strong>Percent:</strong> <span id="percent">0%</span>
     </div>
 
