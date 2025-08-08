@@ -130,4 +130,27 @@
     function onGuess() {
       const g = norm(inputEl.value);
       if (!g) return;
+      if (normalized.has(g)) {
+        const original = normalized.get(g);
+        if (!foundSet.has(original)) {
+          foundSet.add(original);
+          renderList();
+          if (foundSet.size === total) finished("complete");
+        }
+      }
+      inputEl.value = "";
+      inputEl.focus();
+    }
+
+    guessBtn.addEventListener("click", onGuess);
+    inputEl.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); onGuess(); }
+    });
+    giveUpBtn.addEventListener("click", () => finished("giveup"));
+
+    renderList();
+    inputEl.focus();
+  })();
+</script>
+{% endblock %}
 
