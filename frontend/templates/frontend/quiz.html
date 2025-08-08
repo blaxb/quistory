@@ -1,6 +1,5 @@
 {% extends "frontend/base.html" %}
 {% load static %}
-{% load json_script %}
 
 {% block content %}
 <div class="container" style="max-width: 780px; margin: 20px auto;">
@@ -14,7 +13,7 @@
 
   {% if quiz %}
   <hr>
-  <h3>{{ quiz.topic|default:"" |title }} Quiz</h3>
+  <h3>{{ quiz.topic|default:""|title }} Quiz</h3>
 
   <!-- expose quiz data to JS -->
   {{ quiz|json_script:"quiz-data" }}
@@ -39,7 +38,6 @@
 <script>
   // --- auth helpers ----------------------------------------------------------
   function getAccessToken() {
-    // Accept a bunch of common keys so we work with your existing login page.
     return (
       (typeof window !== "undefined" && window.API_TOKEN) ||
       localStorage.getItem("access") ||
@@ -82,18 +80,16 @@
   // --- quiz UI ---------------------------------------------------------------
   (function init() {
     const dataEl = document.getElementById("quiz-data");
-    if (!dataEl) return; // nothing to do on GET
+    if (!dataEl) return;
 
     /** @type {{topic: string, items: string[]}} */
     const quiz = JSON.parse(dataEl.textContent);
 
     const total = quiz.items.length;
-    const normalized = new Map();  // key: normalized answer → original
-    quiz.items.forEach((s) => {
-      normalized.set(norm(s), s);
-    });
+    const normalized = new Map();
+    quiz.items.forEach((s) => normalized.set(norm(s), s));
 
-    const foundSet = new Set(); // original-cased strings
+    const foundSet = new Set();
     const answersEl = document.getElementById("answers");
     const foundCountEl = document.getElementById("found-count");
     const totalCountEl = document.getElementById("total-count");
@@ -104,9 +100,7 @@
 
     totalCountEl.textContent = total;
 
-    function norm(s) {
-      return (s || "").toString().trim().toLowerCase();
-    }
+    function norm(s) { return (s || "").toString().trim().toLowerCase(); }
 
     function renderList() {
       answersEl.innerHTML = "";
@@ -122,15 +116,12 @@
     }
 
     function finished(kind) {
-      // kind is "complete" or "giveup"
       const pct = total ? Math.round((foundSet.size / total) * 100) : 0;
-      const payload = {
+      saveAttempt({
         topic: quiz.topic || "",
         percent_correct: pct,
-        // Simple points: number correct. Change if you have a different rule.
         points: foundSet.size,
-      };
-      saveAttempt(payload);
+      });
       inputEl.disabled = true;
       guessBtn.disabled = true;
       giveUpBtn.disabled = true;
@@ -139,15 +130,12 @@
     function onGuess() {
       const g = norm(inputEl.value);
       if (!g) return;
-
       if (normalized.has(g)) {
         const original = normalized.get(g);
         if (!foundSet.has(original)) {
           foundSet.add(original);
           renderList();
-          if (foundSet.size === total) {
-            finished("complete");
-          }
+          if (foundSet.size === total) finished("complete");
         }
       }
       inputEl.value = "";
@@ -156,13 +144,10 @@
 
     guessBtn.addEventListener("click", onGuess);
     inputEl.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        onGuess();
-      }
+      if (e.key === "Enter") { e.preventDefault(); onGuess(); }
     });
-
     giveUpBtn.addEventListener("click", () => finished("giveup"));
+
     renderList();
     inputEl.focus();
   })();
