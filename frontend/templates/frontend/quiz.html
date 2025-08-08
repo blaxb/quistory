@@ -1,210 +1,171 @@
-{% extends "base.html" %}
+{% extends "frontend/base.html" %}
+{% load static %}
+{% load json_script %}
 
 {% block content %}
+<div class="container" style="max-width: 780px; margin: 20px auto;">
   <h2>Generate a Quiz</h2>
 
-  <form method="post" style="margin-bottom:1em;">
+  <form method="post" style="margin-bottom:1rem;">
     {% csrf_token %}
     {{ form.as_p }}
     <button type="submit">Load Quiz</button>
   </form>
 
   {% if quiz %}
-    <hr>
-<h3>{{ quiz.topic|title }} Quiz</h3>
+  <hr>
+  <h3>{{ quiz.topic|default:"" |title }} Quiz</h3>
 
-    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.5.1/dist/confetti.browser.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+  <!-- expose quiz data to JS -->
+  {{ quiz|json_script:"quiz-data" }}
 
-    {{ quiz|json_script:"quiz-data" }}
-
-    <div class="controls">
-      <div id="timer" style="font-size:1.2em; margin-bottom:0.5em;"></div>
-      <input id="guess-input" placeholder="Type your guess…" style="padding:0.5em; width:100%; box-sizing:border-box;">
-      <button class="btn" id="guess-btn" type="button">Guess</button>
-      <button class="btn" id="giveup-btn" type="button">Give Up</button>
+  <div id="quiz-ui" style="margin-top: 10px;">
+    <div style="margin: .5rem 0;">
+      <strong>Found:</strong> <span id="found-count">0</span> / <span id="total-count">0</span>
+      &nbsp;|&nbsp; <strong>Percent:</strong> <span id="percent">0%</span>
     </div>
 
-    <div id="score" style="font-weight:bold; margin-bottom:1em;"></div>
-    <div id="breakdown" style="margin-bottom:1em;"></div>
+    <input id="guess-input" type="text" placeholder="Type your guess..." style="width: 60%; padding: .4rem;" />
+    <button id="guess-btn" type="button">Guess</button>
+    <button id="giveup-btn" type="button">Give Up</button>
 
-    <div id="boxes" style="
-         display:grid;
-         grid-template-columns:repeat(auto-fill,minmax(120px,1fr));
-         gap:8px;
-         margin-bottom:1em;">
-    </div>
+    <ul id="answers" style="margin-top: 1rem;"></ul>
 
-    <script>
-    ;(function(){
-      function authFetch(url, opts = {}) {
-        opts.headers = {...(opts.headers || {})};
-        if (window.API_TOKEN) {
-          opts.headers["Authorization"] = `Bearer ${window.API_TOKEN}`;
-        }
-        return fetch(url, opts);
-      }
-
-      const raw       = JSON.parse(document.getElementById("quiz-data").textContent);
-      const items     = (raw && Array.isArray(raw.items)) ? raw.items : [];
-      const boxes     = document.getElementById("boxes");
-      const scoreEl   = document.getElementById("score");
-      const breakdown = document.getElementById("breakdown");
-      const timerEl   = document.getElementById("timer");
-      const inputEl   = document.getElementById("guess-input");
-      const guessBtn  = document.getElementById("guess-btn");
-      const giveUpBtn = document.getElementById("giveup-btn");
-
-      let guessed = new Set(), givenUp = false;
-      const totalQs   = items.length;
-      const timeLimit = totalQs*10 + 120;
-      let timeLeft    = timeLimit, timerId;
-
-      function updateTimerDisplay(){
-        const m = Math.floor(timeLeft/60), s = timeLeft%60;
-        timerEl.textContent = `Time left: ${m}m ${s<10?'0'+s:s}s`;
-      }
-
-      function startTimer(){
-        updateTimerDisplay();
-        timerId = setInterval(() => {
-          timeLeft--;
-          updateTimerDisplay();
-          if (timeLeft<=0){
-            clearInterval(timerId);
-            givenUp = true;
-            render();
-          }
-        }, 1000);
-      }
-
-      function lev(a,b){
-        const n=a.length,p=b.length;
-        if(!n)return p; if(!p)return n;
-        const m=Array(n+1).fill().map((_,i)=>[i]);
-        for(let j=1;j<=p;j++)m[0][j]=j;
-        for(let i=1;i<=n;i++){
-          for(let j=1;j<=p;j++){
-            const cost = a[i-1]===b[j-1]?0:1;
-            m[i][j]=Math.min(m[i-1][j]+1,m[i][j-1]+1,m[i-1][j-1]+cost);
-          }
-        }
-        return m[n][p];
-      }
-      function isMatch(guess, ans){
-        const g=guess.trim().toLowerCase(), a=ans.trim().toLowerCase();
-        if(g===a)return true;
-        const d = lev(g,a), len=a.replace(/\s+/g,"").length;
-        if(len>=3&&len<=8) return d<=1;
-        if(len>=9){
-          const maxLen = Math.max(g.length,a.length);
-          return ((maxLen-d)/maxLen)>=0.70;
-        }
-        return false;
-      }
-
-      function render(){
-        boxes.innerHTML="";
-        items.forEach(ans=>{
-          const div = document.createElement("div");
-          div.className="box";
-          if(guessed.has(ans)){
-            div.classList.add("correct"); div.textContent=ans;
-          } else if(givenUp){
-            div.classList.add("missed");  div.textContent=ans;
-          }
-          boxes.appendChild(div);
-        });
-        scoreEl.textContent = `Correct: ${guessed.size} / ${totalQs}`;
-
-        if(guessed.size===totalQs||givenUp){
-          clearInterval(timerId);
-
-          const basePts  = guessed.size*10;
-          const timeBns  = Math.min(Math.floor(timeLeft*0.25), basePts);
-          const compBns  = Math.round(50*(guessed.size/totalQs));
-          const totalPts = basePts + timeBns + compBns;
-
-          breakdown.innerHTML = `
-            <div><strong>Total points: ${totalPts}</strong></div>
-            <ul>
-              <li>Base: ${basePts}</li>
-              <li>Time bonus: ${timeBns}</li>
-              <li>Completion bonus: ${compBns}</li>
-            </ul>`;
-
-          if(guessed.size===totalQs){
-            confetti({ particleCount:100, spread:70, origin:{y:0.4} });
-          }
-
-          // Skip saving if not logged in
-          if (!window.API_TOKEN) {
-            console.log("Not logged in; skipping save of attempt");
-            return;
-          }
-
-          const sorted  = JSON.stringify(items.slice().sort());
-          const quizHash = CryptoJS.MD5(sorted).toString();
-
-          authFetch("/api/quiz/attempts/", {
-            method: "POST",
-            headers: {"Content-Type":"application/json"},
-            body: JSON.stringify({
-              topic: raw.topic || "",
-              correct_count: guessed.size,
-              total_count:   totalQs,
-              quiz_hash:     quizHash,
-              points:        totalPts
-            })
-          }).then(r=>{
-            if(!r.ok) console.error("Failed saving attempt:",r.status);
-          }).catch(e=>{
-            console.error("Attempt save error:", e);
-          });
-        }
-      }
-
-      function handleGuess(){
-        const g = inputEl.value.trim();
-        inputEl.value="";
-        if(!g) return;
-        items.forEach(ans=>{
-          if(!guessed.has(ans) && isMatch(g,ans)){
-            guessed.add(ans);
-          }
-        });
-        render();
-      }
-      guessBtn.addEventListener("click", handleGuess);
-      inputEl.addEventListener("keydown", e=>{
-        if(e.key==="Enter"){e.preventDefault();handleGuess();}
-      });
-      giveUpBtn.addEventListener("click", ()=>{
-        givenUp=true;
-        render();
-      });
-
-      startTimer();
-      render();
-    })();
-    </script>
-
-    <style>
-      .box {
-        border:1px solid #ccc;
-        min-height:60px;
-        display:flex;
-        align-items:center;
-        justify-content:center;
-        background:#fff;
-        padding:8px;
-        word-break:break-word;
-        transition:transform .1s, background-color .2s;
-      }
-      .box:hover { transform:translateY(-2px); background-color:#E3F2FD; }
-      .correct { background-color:#90ee90!important; }
-      .missed  { background-color:#f08080!important; }
-    </style>
+    <div id="save-status" style="margin-top: .5rem; color: #888;"></div>
+  </div>
   {% endif %}
+</div>
+
+<script>
+  // --- auth helpers ----------------------------------------------------------
+  function getAccessToken() {
+    // Accept a bunch of common keys so we work with your existing login page.
+    return (
+      (typeof window !== "undefined" && window.API_TOKEN) ||
+      localStorage.getItem("access") ||
+      localStorage.getItem("access_token") ||
+      localStorage.getItem("accessToken") ||
+      localStorage.getItem("jwt_access") ||
+      null
+    );
+  }
+
+  function authHeaders() {
+    const h = { "Content-Type": "application/json" };
+    const tok = getAccessToken();
+    if (tok) h["Authorization"] = `Bearer ${tok}`;
+    return h;
+  }
+
+  async function saveAttempt(payload) {
+    try {
+      const r = await fetch("/api/quiz/attempts/", {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify(payload),
+      });
+      if (!r.ok) {
+        const t = await r.text();
+        throw new Error(`${r.status} ${t}`);
+      }
+      document.getElementById("save-status").textContent =
+        getAccessToken()
+          ? "Saved! Your leaderboard will reflect this score shortly."
+          : "Saved (anonymous). Log in for your score to appear on the leaderboard.";
+    } catch (err) {
+      console.error("saveAttempt failed:", err);
+      document.getElementById("save-status").textContent =
+        "Could not save result. Check console/network tab.";
+    }
+  }
+
+  // --- quiz UI ---------------------------------------------------------------
+  (function init() {
+    const dataEl = document.getElementById("quiz-data");
+    if (!dataEl) return; // nothing to do on GET
+
+    /** @type {{topic: string, items: string[]}} */
+    const quiz = JSON.parse(dataEl.textContent);
+
+    const total = quiz.items.length;
+    const normalized = new Map();  // key: normalized answer → original
+    quiz.items.forEach((s) => {
+      normalized.set(norm(s), s);
+    });
+
+    const foundSet = new Set(); // original-cased strings
+    const answersEl = document.getElementById("answers");
+    const foundCountEl = document.getElementById("found-count");
+    const totalCountEl = document.getElementById("total-count");
+    const percentEl = document.getElementById("percent");
+    const inputEl = document.getElementById("guess-input");
+    const guessBtn = document.getElementById("guess-btn");
+    const giveUpBtn = document.getElementById("giveup-btn");
+
+    totalCountEl.textContent = total;
+
+    function norm(s) {
+      return (s || "").toString().trim().toLowerCase();
+    }
+
+    function renderList() {
+      answersEl.innerHTML = "";
+      const arr = Array.from(foundSet).sort((a, b) => a.localeCompare(b));
+      for (const a of arr) {
+        const li = document.createElement("li");
+        li.textContent = a;
+        answersEl.appendChild(li);
+      }
+      foundCountEl.textContent = foundSet.size;
+      const pct = total ? Math.round((foundSet.size / total) * 100) : 0;
+      percentEl.textContent = pct + "%";
+    }
+
+    function finished(kind) {
+      // kind is "complete" or "giveup"
+      const pct = total ? Math.round((foundSet.size / total) * 100) : 0;
+      const payload = {
+        topic: quiz.topic || "",
+        percent_correct: pct,
+        // Simple points: number correct. Change if you have a different rule.
+        points: foundSet.size,
+      };
+      saveAttempt(payload);
+      inputEl.disabled = true;
+      guessBtn.disabled = true;
+      giveUpBtn.disabled = true;
+    }
+
+    function onGuess() {
+      const g = norm(inputEl.value);
+      if (!g) return;
+
+      if (normalized.has(g)) {
+        const original = normalized.get(g);
+        if (!foundSet.has(original)) {
+          foundSet.add(original);
+          renderList();
+          if (foundSet.size === total) {
+            finished("complete");
+          }
+        }
+      }
+      inputEl.value = "";
+      inputEl.focus();
+    }
+
+    guessBtn.addEventListener("click", onGuess);
+    inputEl.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        onGuess();
+      }
+    });
+
+    giveUpBtn.addEventListener("click", () => finished("giveup"));
+    renderList();
+    inputEl.focus();
+  })();
+</script>
 {% endblock %}
 
