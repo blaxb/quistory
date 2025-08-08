@@ -82,7 +82,7 @@
     const dataEl = document.getElementById("quiz-data");
     if (!dataEl) return;
 
-    // NOTE: removed JSDoc with `{{ }}` to avoid Django template parsing
+    // NOTE: removed JSDoc that used the phrase “double curly braces” to avoid Django parsing
     const quiz = JSON.parse(dataEl.textContent);
 
     const total = quiz.items.length;
