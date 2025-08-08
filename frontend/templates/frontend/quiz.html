@@ -82,7 +82,7 @@
     const dataEl = document.getElementById("quiz-data");
     if (!dataEl) return;
 
-    /** @type {{topic: string, items: string[]}} */
+    // NOTE: removed JSDoc with `{{ }}` to avoid Django template parsing
     const quiz = JSON.parse(dataEl.textContent);
 
     const total = quiz.items.length;
