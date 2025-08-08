@@ -15,13 +15,12 @@
   <hr>
   <h3>{{ quiz.topic|default:""|title }} Quiz</h3>
 
-  {# Expose quiz data safely to JS #}
+  <!-- expose quiz data to JS -->
   {{ quiz|json_script:"quiz-data" }}
 
   <div id="quiz-ui" style="margin-top: 10px;">
     <div style="margin: .5rem 0;">
-      <strong>Found:</strong> <span id="found-count">0</span> /
-      <span id="total-count">0</span>
+      <strong>Found:</strong> <span id="found-count">0</span> / <span id="total-count">0</span>
       &nbsp;|&nbsp; <strong>Percent:</strong> <span id="percent">0%</span>
     </div>
 
@@ -83,7 +82,7 @@
     const dataEl = document.getElementById("quiz-data");
     if (!dataEl) return;
 
-    // shape: topic (string), items (string[])
+    /** @type {{topic: string, items: string[]}} */
     const quiz = JSON.parse(dataEl.textContent);
 
     const total = quiz.items.length;
