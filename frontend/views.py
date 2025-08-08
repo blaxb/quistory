@@ -1,20 +1,14 @@
-# frontend/views.py
 import os
-import logging
 import requests
 from django.shortcuts import render, redirect
 from django.contrib import messages
 from requests.exceptions import RequestException
 from .forms import LoginForm, RegisterForm, TopicForm
 
-# External APIs (only used for auth/leaderboard)
-DJANGO_API_BASE = os.environ.get("DJANGO_API_BASE", "http://127.0.0.1:8000")
-QUIZ_API_BASE   = f"{DJANGO_API_BASE}/api/quiz"
 
-# Import the local quiz generator so the quiz page works without HTTP calls
-from quiz_logic import generate_quiz as logic_generate_quiz
-
-log = logging.getLogger("frontend")
+def _api_base(request):
+    # Use env if provided, otherwise use current host (https on Render)
+    return os.environ.get("DJANGO_API_BASE") or request.build_absolute_uri("/").rstrip("/")
 
 
 def home(request):
@@ -26,7 +20,7 @@ def register_view(request):
     if form.is_valid():
         try:
             resp = requests.post(
-                f"{DJANGO_API_BASE}/api/auth/register/",
+                f"{_api_base(request)}/api/auth/register/",
                 json={
                     "username":  form.cleaned_data["username"],
                     "email":     form.cleaned_data["email"],
@@ -46,7 +40,7 @@ def register_view(request):
                 for field, errs in resp.json().items():
                     form.add_error(field, errs)
             except Exception:
-                messages.error(request, "Registration failed.")
+                messages.error(request, "Unexpected response from auth service.")
     return render(request, "frontend/register.html", {"form": form})
 
 
@@ -55,7 +49,7 @@ def login_view(request):
     if form.is_valid():
         try:
             resp = requests.post(
-                f"{DJANGO_API_BASE}/api/auth/login/",
+                f"{_api_base(request)}/api/auth/login/",
                 json=form.cleaned_data,
                 timeout=10,
             )
@@ -76,10 +70,6 @@ def logout_view(request):
 
 
 def quiz_view(request):
-    """
-    Generate the quiz by calling local Python (no HTTP).
-    This avoids any DJANGO_API_BASE problems and makes the page reliable.
-    """
     form = TopicForm(request.POST or None)
     quiz = None
     topic = None
@@ -87,14 +77,48 @@ def quiz_view(request):
     if request.method == "POST" and form.is_valid():
         topic = form.cleaned_data["topic"]
         try:
-            data = logic_generate_quiz(topic)  # returns {"topic": str, "items": List[str]}
-            quiz = {
-                "quiz_type": "list",
-                "items": data.get("items", []),
-                "topic": data.get("topic", topic),
-            }
-            log.info("quiz_view generated %d items for topic=%r", len(quiz["items"]), topic)
-        except Exception as e:
-            log.exception("quiz generation error for topic=%r", topic)
-            messages.error(request, f"Couldn’t
+            gen = requests.post(
+                f"{_api_base(request)}/api/quiz/generate-quiz/",
+                json={"topic": topic},
+                timeout=30,
+            )
+            gen.raise_for_status()
+            quiz = gen.json()  # expected: {"topic": "...", "items": [...]}
+        except RequestException as e:
+            # Keep page usable; surface a minimal error via a dummy payload
+            quiz = {"error": f"Couldn’t generate quiz: {e}"}
+
+    return render(
+        request,
+        "frontend/quiz.html",
+        {"form": form, "quiz": quiz, "topic": topic},
+    )
+
+
+def leaderboard_view(request):
+    leaders = []
+    try:
+        resp = requests.get(f"{_api_base(request)}/api/quiz/leaderboard/", timeout=10)
+        resp.raise_for_status()
+        leaders = resp.json()
+    except RequestException as e:
+        messages.error(request, f"Couldn’t load leaderboard: {e}")
+    return render(request, "frontend/leaderboard.html", {"leaders": leaders})
+    
+
+def random_quiz_view(request):
+    form = TopicForm()
+    topic = "Pick a random quiz topic and list its items"
+    quiz = None
+    try:
+        resp = requests.post(
+            f"{_api_base(request)}/api/quiz/generate-quiz/",
+            json={"topic": topic},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        quiz = resp.json()
+    except RequestException as e:
+        quiz = {"error": f"Couldn’t load random quiz: {e}"}
+    return render(request, "frontend/quiz.html", {"form": form, "quiz": quiz, "topic": topic})
 

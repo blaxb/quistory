@@ -1,13 +1,6 @@
 {% extends "base.html" %}
 
 {% block content %}
-
-  {% if messages %}
-    <div style="background:#ffecec;border:1px solid #f5aca6;padding:.5rem;margin-bottom:1rem;">
-      {% for m in messages %}{{ m }}<br>{% endfor %}
-    </div>
-  {% endif %}
-
   <h2>Generate a Quiz</h2>
 
   <form method="post" style="margin-bottom:1em;">
@@ -18,11 +11,11 @@
 
   {% if quiz %}
     <hr>
-    <h3>{{ topic|default:"Your" |title }} Quiz</h3>
+    <h3>
+      {{ topic|default:quiz.topic|default:"Your Quiz"|title }}
+    </h3>
 
-    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.5.1/dist/confetti.browser.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
-
+    <!-- data payload -->
     {{ quiz|json_script:"quiz-data" }}
 
     <div class="controls">
@@ -34,6 +27,7 @@
 
     <div id="score" style="font-weight:bold; margin-bottom:1em;"></div>
     <div id="breakdown" style="margin-bottom:1em;"></div>
+    <div id="error" style="color:#b00020; margin:0.5em 0;"></div>
 
     <div id="boxes" style="
          display:grid;
@@ -42,151 +36,185 @@
          margin-bottom:1em;">
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.5.1/dist/confetti.browser.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+
     <script>
     ;(function(){
+      const errEl = document.getElementById("error");
+      function showErr(msg, raw){
+        console.error("QUIZ ERROR:", msg, raw);
+        errEl.textContent = msg;
+      }
+
+      // Parse payload safely
+      let raw;
       try {
-        const rawEl = document.getElementById("quiz-data");
-        if (!rawEl) throw new Error("Missing quiz-data script tag");
-        const raw = JSON.parse(rawEl.textContent || "{}");
+        raw = JSON.parse(document.getElementById("quiz-data").textContent);
+      } catch (e) {
+        return showErr("Could not read quiz data.", e);
+      }
+      console.log("QUIZ DEBUG: raw payload →", raw);
 
-        // Accept either {items:[...]} or {quiz:[{correctAnswer:...},...]}
-        const items =
-          Array.isArray(raw?.items) ? raw.items :
-          Array.isArray(raw?.quiz)  ? raw.quiz.map(q => q.correctAnswer) :
-          [];
+      // Normalize to an array of items
+      let items = [];
+      if (Array.isArray(raw)) {
+        items = raw;                       // legacy: API returned a bare array
+      } else if (raw && Array.isArray(raw.items)) {
+        items = raw.items;                 // current: { topic, items: [...] }
+      } else if (raw && Array.isArray(raw.quiz)) {
+        // older MCQ shape: { quiz: [{correctAnswer: "..."}] }
+        items = raw.quiz.map(q => q.correctAnswer);
+      } else if (raw && raw.error) {
+        return showErr(raw.error, raw);
+      } else {
+        return showErr("Unknown quiz format from server.", raw);
+      }
 
-        if (!Array.isArray(items) || items.length === 0) {
-          throw new Error("No quiz items were generated.");
+      if (!items.length) {
+        return showErr("The quiz came back empty. Try another topic.", raw);
+      }
+
+      const boxes     = document.getElementById("boxes");
+      const scoreEl   = document.getElementById("score");
+      const breakdown = document.getElementById("breakdown");
+      const timerEl   = document.getElementById("timer");
+      const inputEl   = document.getElementById("guess-input");
+      const guessBtn  = document.getElementById("guess-btn");
+      const giveUpBtn = document.getElementById("giveup-btn");
+
+      // Auth helper for saving attempts (optional; no-op if no token)
+      async function authFetch(url, opts = {}) {
+        opts.headers = { ...(opts.headers||{}) };
+        if (window.API_TOKEN) {
+          opts.headers["Authorization"] = `Bearer ${window.API_TOKEN}`;
         }
+        return fetch(url, opts);
+      }
 
-        const boxes     = document.getElementById("boxes");
-        const scoreEl   = document.getElementById("score");
-        const breakdown = document.getElementById("breakdown");
-        const timerEl   = document.getElementById("timer");
-        const inputEl   = document.getElementById("guess-input");
-        const guessBtn  = document.getElementById("guess-btn");
-        const giveUpBtn = document.getElementById("giveup-btn");
+      // Timer/state
+      let guessed = new Set(), givenUp = false;
+      const totalQs   = items.length;
+      const timeLimit = totalQs*10 + 120;
+      let timeLeft    = timeLimit, timerId;
 
-        let guessed = new Set(), givenUp = false;
-        const totalQs   = items.length;
-        const timeLimit = totalQs*10 + 120;
-        let timeLeft    = timeLimit, timerId;
-
-        function updateTimerDisplay(){
-          const m = Math.floor(timeLeft/60), s = timeLeft%60;
-          timerEl.textContent = `Time left: ${m}m ${s<10?'0'+s:s}s`;
-        }
-        function startTimer(){
+      function updateTimerDisplay(){
+        const m = Math.floor(timeLeft/60), s = timeLeft%60;
+        timerEl.textContent = `Time left: ${m}m ${s<10?'0'+s:s}s`;
+      }
+      function startTimer(){
+        updateTimerDisplay();
+        timerId = setInterval(() => {
+          timeLeft--;
           updateTimerDisplay();
-          timerId = setInterval(() => {
-            timeLeft--;
-            updateTimerDisplay();
-            if (timeLeft <= 0) {
-              clearInterval(timerId);
-              givenUp = true;
-              render();
-            }
-          }, 1000);
-        }
-
-        function lev(a,b){
-          const n=a.length,p=b.length;
-          if(!n)return p; if(!p)return n;
-          const m=Array(n+1).fill().map((_,i)=>[i]);
-          for(let j=1;j<=p;j++)m[0][j]=j;
-          for(let i=1;i<=n;i++){
-            for(let j=1;j<=p;j++){
-              const cost=a[i-1]===b[j-1]?0:1;
-              m[i][j]=Math.min(m[i-1][j]+1,m[i][j-1]+1,m[i-1][j-1]+cost);
-            }
-          }
-          return m[n][p];
-        }
-        function isMatch(guess, ans){
-          const g=guess.trim().toLowerCase(), a=ans.trim().toLowerCase();
-          if(g===a)return true;
-          const d = lev(g,a), len=a.replace(/\s+/g,"").length;
-          if(len>=3&&len<=8) return d<=1;
-          if(len>=9){
-            const maxLen = Math.max(g.length,a.length);
-            return ((maxLen-d)/maxLen)>=0.70;
-          }
-          return false;
-        }
-
-        function render(){
-          boxes.innerHTML = "";
-          items.forEach(ans=>{
-            const div = document.createElement("div");
-            div.className="box";
-            if(guessed.has(ans)){
-              div.classList.add("correct"); div.textContent=ans;
-            } else if(givenUp){
-              div.classList.add("missed");  div.textContent=ans;
-            }
-            boxes.appendChild(div);
-          });
-          scoreEl.textContent = `Correct: ${guessed.size} / ${totalQs}`;
-
-          if(guessed.size===totalQs || givenUp){
+          if (timeLeft<=0){
             clearInterval(timerId);
-            const basePts  = guessed.size*10;
-            const timeBns  = Math.min(Math.floor(timeLeft*0.25), basePts);
-            const compBns  = Math.round(50*(guessed.size/totalQs));
-            const totalPts = basePts + timeBns + compBns;
+            givenUp = true;
+            render();
+          }
+        }, 1000);
+      }
 
-            breakdown.innerHTML = `
-              <div><strong>Total points: ${totalPts}</strong></div>
-              <ul>
-                <li>Base: ${basePts}</li>
-                <li>Time bonus: ${timeBns}</li>
-                <li>Completion bonus: ${compBns}</li>
-              </ul>`;
+      // fuzzy match
+      function lev(a,b){
+        const n=a.length,p=b.length;
+        if(!n)return p; if(!p)return n;
+        const m=Array(n+1).fill().map((_,i)=>[i]);
+        for(let j=1;j<=p;j++)m[0][j]=j;
+        for(let i=1;i<=n;i++){
+          for(let j=1;j<=p;j++){
+            const cost = a[i-1]===b[j-1]?0:1;
+            m[i][j]=Math.min(m[i-1][j]+1,m[i][j-1]+1,m[i-1][j-1]+cost);
+          }
+        }
+        return m[n][p];
+      }
+      function isMatch(guess, ans){
+        const g=guess.trim().toLowerCase(), a=ans.trim().toLowerCase();
+        if(!g) return false;
+        if(g===a) return true;
+        const d = lev(g,a), len=a.replace(/\s+/g,"").length;
+        if(len>=3&&len<=8) return d<=1;
+        if(len>=9){
+          const maxLen = Math.max(g.length,a.length);
+          return ((maxLen-d)/maxLen)>=0.70;
+        }
+        return false;
+      }
 
-            if(guessed.size===totalQs){
-              confetti({ particleCount:100, spread:70, origin:{y:0.4} });
-            }
+      function render(){
+        boxes.innerHTML="";
+        items.forEach(ans=>{
+          const div = document.createElement("div");
+          div.className="box";
+          if(guessed.has(ans)){
+            div.classList.add("correct"); div.textContent=ans;
+          } else if(givenUp){
+            div.classList.add("missed");  div.textContent=ans;
+          }
+          boxes.appendChild(div);
+        });
+        scoreEl.textContent = `Correct: ${guessed.size} / ${totalQs}`;
 
-            // Save attempt (no auth needed if your API allows it)
+        if(guessed.size===totalQs || givenUp){
+          clearInterval(timerId);
+
+          const basePts  = guessed.size*10;
+          const timeBns  = Math.min(Math.floor(timeLeft*0.25), basePts);
+          const compBns  = Math.round(50*(guessed.size/totalQs));
+          const totalPts = basePts + timeBns + compBns;
+
+          breakdown.innerHTML = `
+            <div><strong>Total points: ${totalPts}</strong></div>
+            <ul>
+              <li>Base: ${basePts}</li>
+              <li>Time bonus: ${timeBns}</li>
+              <li>Completion bonus: ${compBns}</li>
+            </ul>`;
+
+          if(guessed.size===totalQs){
+            confetti({ particleCount:100, spread:70, origin:{y:0.4} });
+          }
+
+          // Save attempt (best-effort)
+          try {
             const sorted = JSON.stringify(items.slice().sort());
             const quizHash = CryptoJS.MD5(sorted).toString();
-            fetch("/api/quiz/attempts/", {
+            authFetch("/api/quiz/attempts/", {
               method: "POST",
-              headers: {"Content-Type":"application/json"},
+              headers:{"Content-Type":"application/json"},
               body: JSON.stringify({
-                topic: raw?.topic || "",
-                correct_count: guessed.size,
-                total_count: totalQs,
-                quiz_hash: quizHash,
-                points: totalPts
+                topic: ({{ topic|default_if_none:"null"|safe }} || "{{ quiz.topic|default_if_none:'' }}"),
+                correct_count: guessed.size, total_count: totalQs,
+                quiz_hash: quizHash, points: totalPts
               })
-            }).catch(()=>{});
+            }).then(r=>{ if(!r.ok) console.warn("Failed saving attempt:",r.status); });
+          } catch (e) {
+            console.warn("Attempt save error:", e);
           }
         }
-
-        function handleGuess(){
-          const g = inputEl.value.trim();
-          inputEl.value="";
-          if(!g) return;
-          items.forEach(ans=>{
-            if(!guessed.has(ans) && isMatch(g,ans)){
-              guessed.add(ans);
-            }
-          });
-          render();
-        }
-        guessBtn.addEventListener("click", handleGuess);
-        inputEl.addEventListener("keydown", e=>{
-          if(e.key==="Enter"){e.preventDefault();handleGuess();}
-        });
-        giveUpBtn.addEventListener("click", ()=>{ givenUp=true; render(); });
-
-        startTimer();
-        render();
-      } catch (e) {
-        console.error(e);
-        alert("Quiz render error: " + (e?.message || e));
       }
+
+      function handleGuess(){
+        const g = inputEl.value.trim();
+        inputEl.value="";
+        if(!g) return;
+        items.forEach(ans=>{
+          if(!guessed.has(ans) && isMatch(g,ans)){
+            guessed.add(ans);
+          }
+        });
+        render();
+      }
+
+      guessBtn.addEventListener("click", handleGuess);
+      inputEl.addEventListener("keydown", e=>{
+        if(e.key==="Enter"){e.preventDefault();handleGuess();}
+      });
+      giveUpBtn.addEventListener("click", ()=>{ givenUp=true; render(); });
+
+      startTimer();
+      render();
     })();
     </script>
 
