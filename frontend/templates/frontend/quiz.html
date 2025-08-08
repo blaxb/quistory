@@ -11,9 +11,11 @@
 
   {% if quiz %}
     <hr>
-    <h3>{{ quiz.topic|default:"Your Quiz"|title }}</h3>
+    <h3>{{ quiz.topic|default:topic|title }} Quiz</h3>
 
-    <!-- Put the raw quiz payload into a safe JSON script block -->
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.5.1/dist/confetti.browser.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+
     {{ quiz|json_script:"quiz-data" }}
 
     <div class="controls">
@@ -23,10 +25,8 @@
       <button class="btn" id="giveup-btn" type="button">Give Up</button>
     </div>
 
-    <div id="meta" style="margin:0.5em 0; font-style:italic;"></div>
-    <div id="score" style="font-weight:bold; margin-bottom:0.5em;"></div>
+    <div id="score" style="font-weight:bold; margin-bottom:1em;"></div>
     <div id="breakdown" style="margin-bottom:1em;"></div>
-    <div id="error" style="color:#b00020; margin:0.5em 0;"></div>
 
     <div id="boxes" style="
          display:grid;
@@ -35,51 +35,18 @@
          margin-bottom:1em;">
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.5.1/dist/confetti.browser.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
-
     <script>
     ;(function(){
-      const errEl  = document.getElementById("error");
-      const metaEl = document.getElementById("meta");
-
-      function showErr(msg, raw){
-        console.error("QUIZ ERROR:", msg, raw);
-        errEl.textContent = msg;
+      function authFetch(url, opts = {}) {
+        opts.headers = {...(opts.headers || {})};
+        if (window.API_TOKEN) {
+          opts.headers["Authorization"] = `Bearer ${window.API_TOKEN}`;
+        }
+        return fetch(url, opts);
       }
 
-      // Parse payload safely
-      let raw;
-      try {
-        raw = JSON.parse(document.getElementById("quiz-data").textContent);
-      } catch (e) {
-        return showErr("Could not read quiz data.", e);
-      }
-      console.log("QUIZ DEBUG: raw payload →", raw);
-
-      // Normalize to an array of items
-      let items = [];
-      let topic = "";
-      if (Array.isArray(raw)) {
-        items = raw;
-      } else if (raw && Array.isArray(raw.items)) {
-        items = raw.items;
-        topic = raw.topic || "";
-      } else if (raw && Array.isArray(raw.quiz)) {
-        items = raw.quiz.map(q => q.correctAnswer);
-        topic = raw.topic || "";
-      } else if (raw && raw.error) {
-        return showErr(raw.error, raw);
-      } else {
-        return showErr("Unknown quiz format from server.", raw);
-      }
-
-      if (!items.length) {
-        return showErr("The quiz came back empty. Try another topic.", raw);
-      }
-
-      metaEl.textContent = `Found ${items.length} answers. Start guessing${topic ? " for “" + topic + "”" : ""}!`;
-
+      const raw       = JSON.parse(document.getElementById("quiz-data").textContent);
+      const items     = (raw && Array.isArray(raw.items)) ? raw.items : [];
       const boxes     = document.getElementById("boxes");
       const scoreEl   = document.getElementById("score");
       const breakdown = document.getElementById("breakdown");
@@ -88,16 +55,6 @@
       const guessBtn  = document.getElementById("guess-btn");
       const giveUpBtn = document.getElementById("giveup-btn");
 
-      // Best-effort auth fetch (only used when saving attempts at the end)
-      async function authFetch(url, opts = {}) {
-        opts.headers = { ...(opts.headers||{}) };
-        if (window.API_TOKEN) {
-          opts.headers["Authorization"] = `Bearer ${window.API_TOKEN}`;
-        }
-        return fetch(url, opts);
-      }
-
-      // Timer/state
       let guessed = new Set(), givenUp = false;
       const totalQs   = items.length;
       const timeLimit = totalQs*10 + 120;
@@ -107,6 +64,7 @@
         const m = Math.floor(timeLeft/60), s = timeLeft%60;
         timerEl.textContent = `Time left: ${m}m ${s<10?'0'+s:s}s`;
       }
+
       function startTimer(){
         updateTimerDisplay();
         timerId = setInterval(() => {
@@ -120,7 +78,6 @@
         }, 1000);
       }
 
-      // Levenshtein & fuzzy match
       function lev(a,b){
         const n=a.length,p=b.length;
         if(!n)return p; if(!p)return n;
@@ -136,8 +93,7 @@
       }
       function isMatch(guess, ans){
         const g=guess.trim().toLowerCase(), a=ans.trim().toLowerCase();
-        if(!g) return false;
-        if(g===a) return true;
+        if(g===a)return true;
         const d = lev(g,a), len=a.replace(/\s+/g,"").length;
         if(len>=3&&len<=8) return d<=1;
         if(len>=9){
@@ -156,14 +112,12 @@
             div.classList.add("correct"); div.textContent=ans;
           } else if(givenUp){
             div.classList.add("missed");  div.textContent=ans;
-          } else {
-            div.textContent = ""; // empty placeholder box
           }
           boxes.appendChild(div);
         });
         scoreEl.textContent = `Correct: ${guessed.size} / ${totalQs}`;
 
-        if(guessed.size===totalQs || givenUp){
+        if(guessed.size===totalQs||givenUp){
           clearInterval(timerId);
 
           const basePts  = guessed.size*10;
@@ -183,24 +137,30 @@
             confetti({ particleCount:100, spread:70, origin:{y:0.4} });
           }
 
-          // Save attempt (best-effort). Use topic from the payload we already parsed.
-          try {
-            const sorted = JSON.stringify(items.slice().sort());
-            const quizHash = CryptoJS.MD5(sorted).toString();
-            authFetch("/api/quiz/attempts/", {
-              method: "POST",
-              headers:{"Content-Type":"application/json"},
-              body: JSON.stringify({
-                topic: topic || "",
-                correct_count: guessed.size,
-                total_count: totalQs,
-                quiz_hash: quizHash,
-                points: totalPts
-              })
-            }).then(r=>{ if(!r.ok) console.warn("Failed saving attempt:",r.status); });
-          } catch (e) {
-            console.warn("Attempt save error:", e);
+          // Skip saving if not logged in
+          if (!window.API_TOKEN) {
+            console.log("Not logged in; skipping save of attempt");
+            return;
           }
+
+          const sorted  = JSON.stringify(items.slice().sort());
+          const quizHash = CryptoJS.MD5(sorted).toString();
+
+          authFetch("/api/quiz/attempts/", {
+            method: "POST",
+            headers: {"Content-Type":"application/json"},
+            body: JSON.stringify({
+              topic: raw.topic || "",
+              correct_count: guessed.size,
+              total_count:   totalQs,
+              quiz_hash:     quizHash,
+              points:        totalPts
+            })
+          }).then(r=>{
+            if(!r.ok) console.error("Failed saving attempt:",r.status);
+          }).catch(e=>{
+            console.error("Attempt save error:", e);
+          });
         }
       }
 
@@ -215,12 +175,14 @@
         });
         render();
       }
-
       guessBtn.addEventListener("click", handleGuess);
       inputEl.addEventListener("keydown", e=>{
         if(e.key==="Enter"){e.preventDefault();handleGuess();}
       });
-      giveUpBtn.addEventListener("click", ()=>{ givenUp=true; render(); });
+      giveUpBtn.addEventListener("click", ()=>{
+        givenUp=true;
+        render();
+      });
 
       startTimer();
       render();

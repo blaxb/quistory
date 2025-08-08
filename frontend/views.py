@@ -1,17 +1,10 @@
-# frontend/views.py
-
 import os
-import requests
 from django.shortcuts import render, redirect
 from django.contrib import messages
-from requests.exceptions import RequestException
+from django.contrib.auth import authenticate, login as dj_login, get_user_model
+from rest_framework_simplejwt.tokens import RefreshToken
 
 from .forms import LoginForm, RegisterForm, TopicForm
-
-# For auth endpoints only (can still use your API if you want)
-DJANGO_API_BASE = os.environ.get("DJANGO_API_BASE", "http://127.0.0.1:8000")
-
-# --- NEW: use the quiz logic directly (no HTTP call to ourselves) ---
 from quiz_logic import generate_quiz as logic_generate_quiz
 from django.db.models import Count, Sum
 from django.contrib.auth.models import User
@@ -23,55 +16,54 @@ def home(request):
 
 def register_view(request):
     """
-    Keeps using your REST auth endpoint.
-    If you see timeouts here too, set WEB_CONCURRENCY=2 on Render.
+    Create a Django user directly (no HTTP call to our own API).
     """
     form = RegisterForm(request.POST or None)
     if form.is_valid():
-        try:
-            resp = requests.post(
-                f"{DJANGO_API_BASE}/api/auth/register/",
-                json={
-                    "username":  form.cleaned_data["username"],
-                    "email":     form.cleaned_data["email"],
-                    "password":  form.cleaned_data["password"],
-                    "password2": form.cleaned_data["password2"],
-                },
-                timeout=15,
-            )
-            resp.raise_for_status()
-        except RequestException as e:
-            messages.error(request, f"Registration service error: {e}")
+        UserModel = get_user_model()
+        username = form.cleaned_data["username"]
+        email    = form.cleaned_data.get("email") or ""
+        password = form.cleaned_data["password"]
+
+        if UserModel.objects.filter(username=username).exists():
+            form.add_error("username", "That username is taken.")
         else:
-            if resp.status_code == 201:
+            try:
+                UserModel.objects.create_user(
+                    username=username, email=email, password=password
+                )
+            except Exception as e:
+                messages.error(request, f"Couldn’t create account: {e}")
+            else:
                 messages.success(request, "Account created! Please log in.")
                 return redirect("login")
-            for field, errs in resp.json().items():
-                form.add_error(field, errs)
     return render(request, "frontend/register.html", {"form": form})
 
 
 def login_view(request):
     """
-    Keeps using your REST auth endpoint.
-    If you see timeouts here too, set WEB_CONCURRENCY=2 on Render.
+    Authenticate locally and mint JWTs (no HTTP self-call).
     """
     form = LoginForm(request.POST or None)
     if form.is_valid():
-        try:
-            resp = requests.post(
-                f"{DJANGO_API_BASE}/api/auth/login/",
-                json=form.cleaned_data,
-                timeout=15,
-            )
-            resp.raise_for_status()
-        except RequestException:
-            messages.error(request, "Invalid credentials or auth service down.")
+        user = authenticate(
+            request,
+            username=form.cleaned_data["username"],
+            password=form.cleaned_data["password"],
+        )
+        if not user:
+            messages.error(request, "Invalid username or password.")
         else:
-            data = resp.json()
-            request.session["token"]         = data.get("access")
-            request.session["refresh_token"] = data.get("refresh")
+            # Log into Django session (for template conditionals, etc.)
+            dj_login(request, user)
+
+            # Mint SimpleJWT tokens and store in session so quiz.js can use them
+            refresh = RefreshToken.for_user(user)
+            request.session["token"] = str(refresh.access_token)
+            request.session["refresh_token"] = str(refresh)
+
             return redirect("quiz")
+
     return render(request, "frontend/login.html", {"form": form})
 
 
@@ -82,7 +74,7 @@ def logout_view(request):
 
 def quiz_view(request):
     """
-    NO HTTP round-trip. Generate using local Python, then render the page.
+    Generate the quiz in-process (no HTTP call).
     """
     form = TopicForm(request.POST or None)
     quiz = None
@@ -90,20 +82,17 @@ def quiz_view(request):
     if form.is_valid():
         topic = form.cleaned_data["topic"]
         try:
-            quiz = logic_generate_quiz(topic)  # returns {"topic": ..., "items": [...]}
+            # logic_generate_quiz returns {"topic": ..., "items": [...]}
+            quiz = logic_generate_quiz(topic)
         except Exception as e:
             messages.error(request, f"Couldn’t generate quiz: {e}")
-            quiz = None
 
-    return render(request, "frontend/quiz.html", {
-        "form": form,
-        "quiz": quiz,
-    })
+    return render(request, "frontend/quiz.html", {"form": form, "quiz": quiz})
 
 
 def leaderboard_view(request):
     """
-    NO HTTP round-trip. Query directly via ORM and pass a simple list of dicts.
+    Build leaderboard via ORM directly (no HTTP).
     """
     leaders_qs = (
         User.objects
@@ -125,9 +114,6 @@ def leaderboard_view(request):
 
 
 def random_quiz_view(request):
-    """
-    NO HTTP round-trip. Generate locally with a canned prompt.
-    """
     form  = TopicForm()
     topic = "Pick a random quiz topic and list its items"
     quiz  = None
@@ -136,8 +122,5 @@ def random_quiz_view(request):
     except Exception as e:
         messages.error(request, f"Couldn’t load random quiz: {e}")
 
-    return render(request, "frontend/quiz.html", {
-        "form":  form,
-        "quiz":  quiz,
-    })
+    return render(request, "frontend/quiz.html", {"form": form, "quiz": quiz})
 
