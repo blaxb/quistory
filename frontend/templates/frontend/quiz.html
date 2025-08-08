@@ -11,11 +11,9 @@
 
   {% if quiz %}
     <hr>
-    <h3>
-      {{ topic|default:quiz.topic|default:"Your Quiz"|title }}
-    </h3>
+    <h3>{{ quiz.topic|default:"Your Quiz"|title }}</h3>
 
-    <!-- data payload -->
+    <!-- Put the raw quiz payload into a safe JSON script block -->
     {{ quiz|json_script:"quiz-data" }}
 
     <div class="controls">
@@ -25,7 +23,8 @@
       <button class="btn" id="giveup-btn" type="button">Give Up</button>
     </div>
 
-    <div id="score" style="font-weight:bold; margin-bottom:1em;"></div>
+    <div id="meta" style="margin:0.5em 0; font-style:italic;"></div>
+    <div id="score" style="font-weight:bold; margin-bottom:0.5em;"></div>
     <div id="breakdown" style="margin-bottom:1em;"></div>
     <div id="error" style="color:#b00020; margin:0.5em 0;"></div>
 
@@ -41,7 +40,9 @@
 
     <script>
     ;(function(){
-      const errEl = document.getElementById("error");
+      const errEl  = document.getElementById("error");
+      const metaEl = document.getElementById("meta");
+
       function showErr(msg, raw){
         console.error("QUIZ ERROR:", msg, raw);
         errEl.textContent = msg;
@@ -58,13 +59,15 @@
 
       // Normalize to an array of items
       let items = [];
+      let topic = "";
       if (Array.isArray(raw)) {
-        items = raw;                       // legacy: API returned a bare array
+        items = raw;
       } else if (raw && Array.isArray(raw.items)) {
-        items = raw.items;                 // current: { topic, items: [...] }
+        items = raw.items;
+        topic = raw.topic || "";
       } else if (raw && Array.isArray(raw.quiz)) {
-        // older MCQ shape: { quiz: [{correctAnswer: "..."}] }
         items = raw.quiz.map(q => q.correctAnswer);
+        topic = raw.topic || "";
       } else if (raw && raw.error) {
         return showErr(raw.error, raw);
       } else {
@@ -75,6 +78,8 @@
         return showErr("The quiz came back empty. Try another topic.", raw);
       }
 
+      metaEl.textContent = `Found ${items.length} answers. Start guessing${topic ? " for “" + topic + "”" : ""}!`;
+
       const boxes     = document.getElementById("boxes");
       const scoreEl   = document.getElementById("score");
       const breakdown = document.getElementById("breakdown");
@@ -83,7 +88,7 @@
       const guessBtn  = document.getElementById("guess-btn");
       const giveUpBtn = document.getElementById("giveup-btn");
 
-      // Auth helper for saving attempts (optional; no-op if no token)
+      // Best-effort auth fetch (only used when saving attempts at the end)
       async function authFetch(url, opts = {}) {
         opts.headers = { ...(opts.headers||{}) };
         if (window.API_TOKEN) {
@@ -115,7 +120,7 @@
         }, 1000);
       }
 
-      // fuzzy match
+      // Levenshtein & fuzzy match
       function lev(a,b){
         const n=a.length,p=b.length;
         if(!n)return p; if(!p)return n;
@@ -151,6 +156,8 @@
             div.classList.add("correct"); div.textContent=ans;
           } else if(givenUp){
             div.classList.add("missed");  div.textContent=ans;
+          } else {
+            div.textContent = ""; // empty placeholder box
           }
           boxes.appendChild(div);
         });
@@ -176,7 +183,7 @@
             confetti({ particleCount:100, spread:70, origin:{y:0.4} });
           }
 
-          // Save attempt (best-effort)
+          // Save attempt (best-effort). Use topic from the payload we already parsed.
           try {
             const sorted = JSON.stringify(items.slice().sort());
             const quizHash = CryptoJS.MD5(sorted).toString();
@@ -184,9 +191,11 @@
               method: "POST",
               headers:{"Content-Type":"application/json"},
               body: JSON.stringify({
-                topic: ({{ topic|default_if_none:"null"|safe }} || "{{ quiz.topic|default_if_none:'' }}"),
-                correct_count: guessed.size, total_count: totalQs,
-                quiz_hash: quizHash, points: totalPts
+                topic: topic || "",
+                correct_count: guessed.size,
+                total_count: totalQs,
+                quiz_hash: quizHash,
+                points: totalPts
               })
             }).then(r=>{ if(!r.ok) console.warn("Failed saving attempt:",r.status); });
           } catch (e) {
